@@ -208,7 +208,7 @@
   }
   function card(i) {
     return `<button class="card" data-code="${i.code}" style="--tc:var(--t${i.tn})">
-      <span class="top"><span class="name">${esc(i.name)}</span><span class="code">${i.code}</span></span>
+      <span class="top"><span class="name" title="${esc(i.name)}">${esc(i.name)}</span><span class="code">${i.code}</span></span>
       <span class="mid"><span class="val num">${fmt(i.last.Value)}<small${unitShort(i.unit).length > 10 ? ' class="long"' : ""}>${esc(unitShort(i.unit))}</small></span>${spark(i, 104, 34, `var(--t${i.tn})`)}</span>
       ${strip(i)}
       <span class="bot">${yrChip(i.last.Year)}${deltaText(i)}</span></button>`;
@@ -249,19 +249,7 @@
         <div class="cards">${parts.join("")}</div></section>`;
     });
     $("#sections").innerHTML = html || `<p class="empty">No indicator matches “${esc(QUERY)}”. Try a shorter word, such as “rice” or “poverty”.</p>`;
-    pack();
   }
-  /* Masonry packing: each card spans as many 4px grid rows as its height needs, so cards of
-     different heights slot together without gaps (grid-auto-flow: dense fills the holes). */
-  function pack() {
-    $$(".cards").forEach((g) => {
-      const st = getComputedStyle(g), row = parseFloat(st.gridAutoRows) || 4, gap = parseFloat(st.getPropertyValue("--gap")) || 12;
-      Array.from(g.children).forEach((c) => { c.style.gridRowEnd = "auto"; });
-      Array.from(g.children).forEach((c) => { c.style.gridRowEnd = "span " + Math.ceil((c.getBoundingClientRect().height + gap) / row); });
-    });
-  }
-  let packT; window.addEventListener("resize", () => { clearTimeout(packT); packT = setTimeout(pack, 120); });
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => pack());
 
   /* ---------- detail drawer ---------- */
   function niceTicks(lo, hi, n = 5) {
