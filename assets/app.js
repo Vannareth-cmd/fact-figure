@@ -440,44 +440,112 @@
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const F = await setupFonts(doc); await loadTitleImages();
-    const PW = 210, PH = 297, M = 11, INK = [20, 33, 61], MUTED = [86, 102, 122], SAF = [176, 112, 0];
+    const PW = 210, PH = 297, M = 10, GAP = 6, COLW = (PW - 2 * M - GAP) / 2, TOP = 11, BOT = PH - 11;
+    const INK = [20, 33, 61], MUTED = [96, 110, 130], SAF = [176, 112, 0], RULE = [226, 232, 236];
     const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const sel = new Set(inds.map((i) => i.code));
-    // compact header on page 1 only
+    const y0 = YEARS[0], y1 = YEARS[YEARS.length - 1];
+
+    // numbered sources, in order of first use
+    const REFS = [], REFIX = {};
+    const refOf = (r) => {
+      const k = [r.Author, r.Report].map((x) => pdfText(x)).filter(Boolean).join(", ") || "Source not given";
+      if (!(k in REFIX)) { REFIX[k] = REFS.length + 1; REFS.push({ k, url: r.URL || "" }); }
+      return REFIX[k];
+    };
+
+    // page 1 header
     titleText(doc, TITLE, M, 16, 20, F.title, INK);
     doc.setFont(...F.bold); doc.setFontSize(8.5); doc.setTextColor(...INK);
     doc.text(`Collected, compiled and updated by VAM · Printed on ${today}`, M, 21.5);
-    doc.setFont(...F.body); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
-    doc.text(`Latest published figure for each indicator · ${inds.length} indicators`, M, 25.5);
-    doc.text(SOURCE === "live" ? "Data: live Google Sheet" : "Data: built-in copy", PW - M, 25.5, { align: "right" });
-    doc.setDrawColor(...INK); doc.setLineWidth(0.4); doc.line(M, 28, PW - M, 28);
-    let cy = 31;
+    doc.setFont(...F.body); doc.setFontSize(6.6); doc.setTextColor(...MUTED);
+    doc.text(`Latest published figure for ${inds.length} indicators. Line: trend ${y0}–${y1}, dot = latest figure. Arrow: change since the previous figure. Small number: source, listed at the end.`, M, 25.5);
+    doc.setDrawColor(...INK); doc.setLineWidth(0.4); doc.line(M, 27.8, PW - M, 27.8);
+
+    // two-column flow
+    let col = 0, cy = 31, colTop = 31;
+    const X = () => M + col * (COLW + GAP);
+    const room = (h) => {
+      if (cy + h <= BOT) return;
+      if (col === 0) { col = 1; cy = colTop; } else { doc.addPage(); col = 0; colTop = cy = TOP; }
+    };
+
+    const NAMEW = 52, LH = 2.5;
+    const sparkline = (i, x, y, w, h, rgb) => {
+      const s = i.series; if (s.length < 2) return;
+      const vs = s.map((r) => r.Value); let lo = Math.min(...vs), hi = Math.max(...vs); if (hi === lo) { hi += 1; lo -= 1; }
+      const px = (yr) => x + ((yr - y0) / Math.max(1, y1 - y0)) * w, py = (v) => y + h - ((v - lo) / (hi - lo)) * h;
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.15); doc.line(x, y + h + 0.35, x + w, y + h + 0.35);
+      doc.setDrawColor(...rgb); doc.setLineWidth(0.3);
+      for (let k = 1; k < s.length; k++) doc.line(px(s[k - 1].Year), py(s[k - 1].Value), px(s[k].Year), py(s[k].Value));
+      const e = s[s.length - 1]; doc.setFillColor(...SAF); doc.circle(px(e.Year), py(e.Value), 0.45, "F");
+    };
+    const arrow = (i, x, yc) => {
+      if (!i.prev) return; const d = i.last.Value - i.prev.Value; doc.setFillColor(...MUTED);
+      if (d > 0) doc.triangle(x, yc + 0.7, x + 1.6, yc + 0.7, x + 0.8, yc - 0.7, "F");
+      else if (d < 0) doc.triangle(x, yc - 0.7, x + 1.6, yc - 0.7, x + 0.8, yc + 0.7, "F");
+      else doc.rect(x, yc - 0.15, 1.6, 0.3, "F");
+    };
+    const valueText = (i) => { const u = unitShort(i.unit); return fmt(i.last.Value) + (u === "%" ? "%" : ""); };
+    const nameText = (label, i, withUnit) => { const u = unitShort(i.unit); return pdfText(label) + (withUnit && u && u !== "%" ? ` (${pdfText(u)})` : ""); };
+
+    const rowH = (txt, indent) => { doc.setFont(...F.body); doc.setFontSize(6.6); return doc.splitTextToSize(txt, NAMEW - indent).length * LH + 1.1; };
+    const drawRow = (i, label, indent, rgb, withUnit) => {
+      const txt = nameText(label, i, withUnit);
+      doc.setFont(...F.body); doc.setFontSize(6.6);
+      const lines = doc.splitTextToSize(txt, NAMEW - indent), h = lines.length * LH + 1.1;
+      room(h); const x = X(), base = cy + 2.3, mid = cy + h / 2;
+      doc.setTextColor(...INK); doc.text(lines, x + indent, base);
+      sparkline(i, x + NAMEW + 1, mid - 1.3, 13, 2.4, rgb);
+      doc.setFont(...F.bold); doc.setFontSize(7); doc.setTextColor(...INK);
+      doc.text(valueText(i), x + 79, mid + 0.9, { align: "right" });
+      arrow(i, x + 79.8, mid + 0.1);
+      doc.setFontSize(6.3); doc.setTextColor(...SAF); doc.text(String(i.last.Year), x + 82.6, mid + 0.9);
+      doc.setFont(...F.body); doc.setFontSize(4.6); doc.setTextColor(...MUTED); doc.text(String(refOf(i.last)), x + 88.2, mid - 0.2);
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.12); doc.line(x, cy + h, x + COLW, cy + h);
+      cy += h;
+    };
+
     THEMES.forEach((t) => {
       const items = t.inds.filter((i) => sel.has(i.code)); if (!items.length) return;
-      if (cy > PH - 30) { doc.addPage(); cy = 12; }
       const rgb = THEME_RGB[t.n] || INK;
-      doc.setFillColor(...rgb); doc.rect(M, cy, PW - 2 * M, 6, "F");
-      titleText(doc, `${t.n}. ${t.name}`, M + 2.5, cy + 4.4, 10, F.title, [255, 255, 255]);
-      const body = []; let lastGroup = null;
+      room(5.6 + rowH(items[0].name, 0) + (items[0].group ? 3.6 : 0));
+      if (cy > colTop) cy += 1.6;
+      doc.setFillColor(...rgb); doc.rect(X(), cy, COLW, 5, "F");
+      titleText(doc, `${t.n}. ${t.name}`, X() + 2, cy + 3.7, 8.5, F.title, [255, 255, 255]);
+      cy += 5.6;
+      let lastGroup = null;
       items.forEach((i) => {
-        if (i.group && i.group !== lastGroup) body.push([{ content: pdfText(i.group.name), colSpan: 7, styles: { font: F.bold[0], fontStyle: F.bold[1], textColor: INK, fillColor: [241, 245, 246] } }]);
+        if (i.group && i.group !== lastGroup) {
+          room(3.4 + rowH(i.sub, 2.5));
+          const u = i.group.sameUnit ? unitShort(i.unit) : "";
+          doc.setFont(...F.bold); doc.setFontSize(6.6); doc.setTextColor(...INK);
+          doc.text(pdfText(i.group.name) + (u && u !== "%" ? ` (${pdfText(u)})` : ""), X(), cy + 2.4);
+          cy += 3.4;
+        }
         lastGroup = i.group || null;
-        const d = i.prev ? i.last.Value - i.prev.Value : null;
-        body.push([i.code, i.group ? "  " + pdfText(i.sub) : pdfText(i.name), fmt(i.last.Value), pdfText(unitShort(i.unit)), String(i.last.Year),
-          d == null ? "" : `${d > 0 ? "+" : ""}${fmt(d)} (${i.prev.Year})`, pdfText([i.last.Author, i.last.Report].filter(Boolean).join(", "))]);
+        if (i.group) drawRow(i, i.sub, 2.5, rgb, !i.group.sameUnit);
+        else drawRow(i, i.name, 0, rgb, true);
       });
-      doc.autoTable({
-        startY: cy + 6, margin: { left: M, right: M, top: 12, bottom: 12 }, showHead: "firstPage",
-        head: [["Code", "Indicator", "Value", "Unit", "Year", "Change", "Source"]], body,
-        styles: { font: F.body[0], fontStyle: F.body[1], fontSize: 7, cellPadding: { top: 0.9, bottom: 0.9, left: 1.3, right: 1.3 }, textColor: INK, lineColor: [222, 229, 232], lineWidth: 0.1, valign: "middle", minCellHeight: 0 },
-        headStyles: { font: F.bold[0], fontStyle: F.bold[1], fillColor: [255, 255, 255], textColor: MUTED, fontSize: 6.5 },
-        columnStyles: { 0: { cellWidth: 8.5 }, 1: { cellWidth: 57 }, 2: { halign: "right", font: F.bold[0], fontStyle: F.bold[1], cellWidth: 13 }, 3: { cellWidth: 25 }, 4: { halign: "center", cellWidth: 9, textColor: SAF, font: F.bold[0], fontStyle: F.bold[1] }, 5: { cellWidth: 18, textColor: MUTED }, 6: { textColor: MUTED, fontSize: 6.5 } }
-      });
-      cy = doc.lastAutoTable.finalY + 4;
     });
+
+    // numbered source list
+    room(5.6 + 6); if (cy > colTop) cy += 1.6;
+    doc.setFillColor(...INK); doc.rect(X(), cy, COLW, 5, "F");
+    doc.setFont(...F.bold); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255); doc.text("Sources", X() + 2, cy + 3.5);
+    cy += 6;
+    REFS.forEach((r, n) => {
+      doc.setFont(...F.body); doc.setFontSize(6.2);
+      const lines = doc.splitTextToSize(r.k, COLW - 5), h = lines.length * 2.4 + 0.6;
+      room(h);
+      doc.setFont(...F.bold); doc.setTextColor(...SAF); doc.text(String(n + 1), X() + 3, cy + 2.2, { align: "right" });
+      doc.setFont(...F.body); doc.setTextColor(...INK); doc.text(lines, X() + 4.5, cy + 2.2);
+      cy += h;
+    });
+
     const n = doc.getNumberOfPages();
     for (let p = 1; p <= n; p++) {
-      doc.setPage(p); doc.setFont(...F.body); doc.setFontSize(6.5); doc.setTextColor(...MUTED);
+      doc.setPage(p); doc.setFont(...F.body); doc.setFontSize(6.3); doc.setTextColor(...MUTED);
       doc.text(`${TITLE} · Collected, compiled and updated by VAM · Printed on ${today}`, M, PH - 6); doc.text(`${p} / ${n}`, PW - M, PH - 6, { align: "right" });
     }
     doc.save(`cambodia-fact-and-figure-${new Date().toISOString().slice(0, 10)}.pdf`);
