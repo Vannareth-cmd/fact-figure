@@ -29,7 +29,7 @@ If the link cannot be read, the page uses `data/data.json` and the status line s
 
 ## PDF fonts
 
-The PDF report embeds **Open Sans Light** (body text) and **Open Sans ExtraBold** (values and headings) from `assets/fonts/`. Titles use **Halden Solid** if `assets/fonts/HaldenSolid.ttf` exists. If it doesn't, titles fall back to Open Sans ExtraBold. To switch to Halden, add that file (TTF format) and nothing else needs to change.
+The PDF report embeds **Open Sans Light** (body text) and **Open Sans ExtraBold** (values and headings) from `assets/fonts/`. The report title and the theme names are set in **Halden Solid**. Halden is not freely licensed, so the font file is not published here. Instead, those titles are pre-rendered images in `assets/pdf-titles/`, listed in `manifest.json`. If a theme is renamed in the Sheet, that title falls back to Open Sans ExtraBold until its image is re-rendered.
 
 ## Showing or hiding an indicator (editors)
 

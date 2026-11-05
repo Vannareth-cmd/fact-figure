@@ -1,0 +1,82 @@
+{
+ "Cambodia Fact and Figure": {
+  "file": "assets/pdf-titles/title.png",
+  "w": 2296,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "1. Basic information": {
+  "file": "assets/pdf-titles/t1.png",
+  "w": 1766,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "2. Population": {
+  "file": "assets/pdf-titles/t2.png",
+  "w": 1201,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "3. Economic": {
+  "file": "assets/pdf-titles/t3.png",
+  "w": 1028,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "4. Employment": {
+  "file": "assets/pdf-titles/t4.png",
+  "w": 1338,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "5. Agriculture": {
+  "file": "assets/pdf-titles/t5.png",
+  "w": 1280,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "6. Energy and environment": {
+  "file": "assets/pdf-titles/t6.png",
+  "w": 2464,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "7. Education": {
+  "file": "assets/pdf-titles/t7.png",
+  "w": 1109,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "8. Poverty and food security": {
+  "file": "assets/pdf-titles/t8.png",
+  "w": 2661,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ },
+ "9. Health and nutrition": {
+  "file": "assets/pdf-titles/t9.png",
+  "w": 2151,
+  "h": 256,
+  "base": 188,
+  "px": 240,
+  "pad": 8
+ }
+}

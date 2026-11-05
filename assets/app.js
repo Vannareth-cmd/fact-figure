@@ -371,8 +371,29 @@
     save(new Blob(["﻿" + lines.map(csvLine).join("\n")], { type: "text/csv;charset=utf-8" }), `cambodia-fact-and-figure-${allYears ? "all-years" : "latest"}-${new Date().toISOString().slice(0, 10)}.csv`);
     toast(`Downloaded ${inds.length} indicators as CSV`);
   }
-  /* PDF fonts: Open Sans Light / ExtraBold (assets/fonts), and Halden Solid for titles when assets/fonts/HaldenSolid.ttf exists. */
-  const FONT_FILES = { "OpenSans-light": "assets/fonts/OpenSans-300Light.ttf", "OpenSans-extrabold": "assets/fonts/OpenSans-800ExtraBold.ttf", "Halden-solid": "assets/fonts/HaldenSolid.ttf" };
+  /* PDF fonts: Open Sans Light / ExtraBold (assets/fonts). Titles in Halden Solid come as pre-rendered images
+     (assets/pdf-titles), so the font file itself is never published. */
+  const FONT_FILES = { "OpenSans-light": "assets/fonts/OpenSans-300Light.ttf", "OpenSans-extrabold": "assets/fonts/OpenSans-800ExtraBold.ttf" };
+  let TITLE_IMGS = null;
+  async function loadTitleImages() {
+    if (TITLE_IMGS) return TITLE_IMGS;
+    TITLE_IMGS = {};
+    try {
+      const man = await (await fetch("assets/pdf-titles/manifest.json")).json();
+      await Promise.all(Object.entries(man).map(async ([text, m]) => {
+        const blob = await (await fetch(m.file)).blob();
+        const url = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
+        TITLE_IMGS[text] = Object.assign({ url }, m);
+      }));
+    } catch (e) { }
+    return TITLE_IMGS;
+  }
+  /* Draws text in Halden Solid (image) with its baseline at y; falls back to the given font. */
+  function titleText(doc, text, x, y, pt, F, color) {
+    const m = TITLE_IMGS && TITLE_IMGS[text];
+    if (m) { const k = (pt * 0.3528) / m.px; doc.addImage(m.url, "PNG", x - m.pad * k, y - m.base * k, m.w * k, m.h * k, undefined, "FAST"); return; }
+    doc.setFont(...F); doc.setFontSize(pt); doc.setTextColor(...color); doc.text(text, x, y);
+  }
   const FONT_CACHE = {};
   async function fontB64(path) {
     if (path in FONT_CACHE) return FONT_CACHE[path];
@@ -393,7 +414,7 @@
     }
     const body = have["OpenSans-light"] ? ["OpenSans", "light"] : ["helvetica", "normal"];
     const bold = have["OpenSans-extrabold"] ? ["OpenSans", "extrabold"] : ["helvetica", "bold"];
-    const title = have["Halden-solid"] ? ["Halden", "solid"] : bold;
+    const title = bold;
     return { body, bold, title };
   }
   const pdfText = (s) => String(s == null ? "" : s).replace(/[​-‍﻿]/g, "").replace(/[^\x20-\x7E -ÿ–—‘’“”•…²]/g, "").trim();
@@ -403,25 +424,25 @@
     toast("Preparing the PDF…");
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const F = await setupFonts(doc);
+    const F = await setupFonts(doc); await loadTitleImages();
     const PW = 210, PH = 297, M = 11, INK = [20, 33, 61], MUTED = [86, 102, 122], SAF = [176, 112, 0];
     const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const sel = new Set(inds.map((i) => i.code));
     // compact header on page 1 only
-    doc.setFont(...F.title); doc.setFontSize(17); doc.setTextColor(...INK);
-    doc.text(TITLE, M, 15);
-    doc.setFont(...F.body); doc.setFontSize(8); doc.setTextColor(...MUTED);
-    doc.text(`Latest published figure for each indicator · ${inds.length} indicators · generated ${today}`, M, 20.5);
-    doc.text(SOURCE === "live" ? "Data: live Google Sheet" : "Data: built-in copy", PW - M, 20.5, { align: "right" });
-    doc.setDrawColor(...INK); doc.setLineWidth(0.4); doc.line(M, 23.5, PW - M, 23.5);
-    let cy = 27;
+    titleText(doc, TITLE, M, 16, 20, F.title, INK);
+    doc.setFont(...F.bold); doc.setFontSize(8.5); doc.setTextColor(...INK);
+    doc.text(`Collected, compiled and updated by VAM · Printed on ${today}`, M, 21.5);
+    doc.setFont(...F.body); doc.setFontSize(7.5); doc.setTextColor(...MUTED);
+    doc.text(`Latest published figure for each indicator · ${inds.length} indicators`, M, 25.5);
+    doc.text(SOURCE === "live" ? "Data: live Google Sheet" : "Data: built-in copy", PW - M, 25.5, { align: "right" });
+    doc.setDrawColor(...INK); doc.setLineWidth(0.4); doc.line(M, 28, PW - M, 28);
+    let cy = 31;
     THEMES.forEach((t) => {
       const items = t.inds.filter((i) => sel.has(i.code)); if (!items.length) return;
       if (cy > PH - 30) { doc.addPage(); cy = 12; }
       const rgb = THEME_RGB[t.n] || INK;
       doc.setFillColor(...rgb); doc.rect(M, cy, PW - 2 * M, 6, "F");
-      doc.setFont(...F.title); doc.setFontSize(9); doc.setTextColor(255, 255, 255);
-      doc.text(`${t.n}. ${pdfText(t.name)}`, M + 2.5, cy + 4.2);
+      titleText(doc, `${t.n}. ${t.name}`, M + 2.5, cy + 4.4, 10, F.title, [255, 255, 255]);
       const body = []; let lastGroup = null;
       items.forEach((i) => {
         if (i.group && i.group !== lastGroup) body.push([{ content: pdfText(i.group.name), colSpan: 7, styles: { font: F.bold[0], fontStyle: F.bold[1], textColor: INK, fillColor: [241, 245, 246] } }]);
@@ -442,7 +463,7 @@
     const n = doc.getNumberOfPages();
     for (let p = 1; p <= n; p++) {
       doc.setPage(p); doc.setFont(...F.body); doc.setFontSize(6.5); doc.setTextColor(...MUTED);
-      doc.text(`${TITLE} · ${today}`, M, PH - 6); doc.text(`${p} / ${n}`, PW - M, PH - 6, { align: "right" });
+      doc.text(`${TITLE} · Collected, compiled and updated by VAM · Printed on ${today}`, M, PH - 6); doc.text(`${p} / ${n}`, PW - M, PH - 6, { align: "right" });
     }
     doc.save(`cambodia-fact-and-figure-${new Date().toISOString().slice(0, 10)}.pdf`);
     toast(`Report downloaded: ${inds.length} indicators on ${n} page${n > 1 ? "s" : ""}`);
