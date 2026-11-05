@@ -1,7 +1,7 @@
 /* Cambodia Fact and Figure — reads the published Data tab of the Google Sheet, falls back to data/data.json. */
 (function () {
   "use strict";
-  const CFG = Object.assign({ csvUrl: "", fallback: "data/data.json", firstYear: 2013 }, window.FF_CONFIG || {});
+  const CFG = Object.assign({ csvUrl: "", listUrl: "", fallback: "data/data.json", firstYear: 2013 }, window.FF_CONFIG || {});
   const NOW = new Date().getFullYear();
   const TITLE = "Cambodia Fact and Figure";
 
@@ -79,6 +79,19 @@
     if (rows.length < 50) throw new Error("too few rows");
     return rows;
   }
+  /* Editor switches from the Indicator_List tab: Show_on_dashboard and Include_in_downloads (Y/N, blank = Y). */
+  async function loadVisibility() {
+    if (!CFG.listUrl || !window.Papa) return {};
+    const sep = CFG.listUrl.includes("?") ? "&" : "?";
+    const res = await fetch(CFG.listUrl + sep + "_=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) throw new Error("http " + res.status);
+    const rows = Papa.parse(await res.text(), { header: true, skipEmptyLines: true, transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, "_") }).data;
+    const no = (v) => /^(n|no|false|0|hide|hidden)$/i.test(String(v == null ? "" : v).trim());
+    const out = {};
+    rows.forEach((r) => { const c = normCode(r.code); if (c) out[c] = { dash: !no(r.show_on_dashboard), dl: !no(r.include_in_downloads) }; });
+    return out;
+  }
+  let VIS = {};
   async function loadFallback() {
     const res = await fetch(CFG.fallback, { cache: "no-store" });
     return clean(await res.json());
@@ -99,7 +112,8 @@
     IND = Object.keys(BY).sort((a, b) => parseFloat(a) - parseFloat(b) || a.localeCompare(b)).map((code) => {
       const s = BY[code].slice().sort((a, b) => a.Year - b.Year);
       const last = s[s.length - 1], prev = s.length > 1 ? s[s.length - 2] : null;
-      return { code, tn: parseInt(code, 10), theme: last.Theme.replace(/^\d+\.\s*/, ""), name: last.Indicator, unit: last.Unit, series: s, last, prev };
+      const v = VIS[code] || { dash: true, dl: true };
+      return { code, tn: parseInt(code, 10), theme: last.Theme.replace(/^\d+\.\s*/, ""), name: last.Indicator, unit: last.Unit, series: s, last, prev, dash: v.dash, dl: v.dl };
     });
     const maxY = Math.max(NOW, ...rows.map((r) => r.Year));
     const minY = Math.min(CFG.firstYear, ...rows.map((r) => r.Year));
@@ -162,20 +176,20 @@
     const el = $("#status");
     const live = SOURCE === "live";
     el.className = "status" + (live ? " live" : "");
-    el.innerHTML = `<i></i>${live ? "Live from the Google Sheet" : "Showing the built-in copy of the data"} · ${IND.length} indicators · ${ROWS.length} figures`;
+    el.innerHTML = `<i></i>${live ? "Live from the Google Sheet" : "Showing the built-in copy of the data"} · ${IND.filter((i) => i.dash).length} indicators · ${ROWS.filter((r) => (VIS[r.Code] || { dash: true }).dash).length} figures`;
   }
   function renderHeadline() {
     $("#headline").innerHTML = HEADLINE.map(([code, label]) => {
-      const i = IND.find((x) => x.code === code); if (!i) return "";
+      const i = IND.find((x) => x.code === code); if (!i || !i.dash) return "";
       return `<button class="hl" data-code="${code}" style="--tc:var(--t${i.tn})"><span class="lbl">${esc(label)}</span>
         <span class="val num">${fmt(i.last.Value)}<small>${esc(unitShort(i.unit))}</small></span>
         <span class="foot">${yrChip(i.last.Year)}${spark(i, 92, 28, `var(--t${i.tn})`)}</span></button>`;
     }).join("");
   }
   function renderChips() {
-    const all = `<button class="chip" data-t="0" aria-pressed="${ACTIVE === 0}" style="--tc:var(--river)"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span>All themes <span class="n">${IND.length}</span></button>`;
-    $("#chips").innerHTML = all + THEMES.map((t) =>
-      `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ""}</span>${esc(t.name)} <span class="n">${t.inds.length}</span></button>`).join("");
+    const all = `<button class="chip" data-t="0" aria-pressed="${ACTIVE === 0}" style="--tc:var(--river)"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span>All themes <span class="n">${IND.filter((i) => i.dash).length}</span></button>`;
+    $("#chips").innerHTML = all + THEMES.filter((t) => t.inds.some((i) => i.dash)).map((t) =>
+      `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ""}</span>${esc(t.name)} <span class="n">${t.inds.filter((i) => i.dash).length}</span></button>`).join("");
   }
   function card(i) {
     return `<button class="card" data-code="${i.code}" style="--tc:var(--t${i.tn})">
@@ -209,8 +223,8 @@
       if (ACTIVE && ACTIVE !== t.n) return;
       const parts = []; let shown = [];
       t.entries.forEach((e) => {
-        if (e.type === "one") { if (matches(e.ind, q)) { parts.push(card(e.ind)); shown.push(e.ind); } }
-        else { const ms = e.group.members.filter((m) => matches(m.ind, q)); if (ms.length) { parts.push(ms.length > 1 ? groupCard(e.group, ms) : card(ms[0].ind)); shown = shown.concat(ms.map((m) => m.ind)); } }
+        if (e.type === "one") { if (e.ind.dash && matches(e.ind, q)) { parts.push(card(e.ind)); shown.push(e.ind); } }
+        else { const ms = e.group.members.filter((m) => m.ind.dash && matches(m.ind, q)); if (ms.length) { parts.push(ms.length > 1 ? groupCard(e.group, ms) : card(ms[0].ind)); shown = shown.concat(ms.map((m) => m.ind)); } }
       });
       if (!parts.length) return;
       const newest = Math.max(...shown.map((i) => i.last.Year)), oldest = Math.min(...shown.map((i) => i.last.Year));
@@ -310,20 +324,20 @@
   function renderPicker() {
     const q = ($("#pk-q").value || "").trim().toLowerCase();
     $("#pk-list").innerHTML = THEMES.map((t) => {
-      const items = t.inds.filter((i) => matches(i, q)); if (!items.length) return "";
+      const items = t.inds.filter((i) => i.dl && matches(i, q)); if (!items.length) return "";
       const on = items.filter((i) => SELECTED.has(i.code)).length;
       return `<fieldset class="pk-theme" style="--tc:var(--t${t.n})"><legend><label><input type="checkbox" data-theme-box="${t.n}" ${on === items.length ? "checked" : ""} ${on > 0 && on < items.length ? 'data-mixed="1"' : ""}> <span class="ic">${ICONS[t.n] || ""}</span>${t.n}. ${esc(t.name)}</label><span class="n">${on}/${items.length}</span></legend>
         ${items.map((i) => `<label class="pk-item${i.group ? " is-sub" : ""}"><input type="checkbox" data-pick="${i.code}" ${SELECTED.has(i.code) ? "checked" : ""}><span class="c">${i.code}</span><span class="t">${i.group ? `<em>${esc(i.group.name)}:</em> ${esc(i.sub)}` : esc(i.name)}</span><span class="y">${i.last.Year}</span></label>`).join("")}</fieldset>`;
     }).join("") || `<p class="empty">No indicator matches “${esc(q)}”.</p>`;
     $$("#pk-list [data-mixed]").forEach((b) => { b.indeterminate = true; });
     const fmtSel = $("input[name=pk-fmt]:checked").value;
-    $("#pk-count").textContent = `${SELECTED.size} of ${IND.length} indicators selected`;
+    $("#pk-count").textContent = `${SELECTED.size} of ${IND.filter((i) => i.dl).length} indicators selected`;
     $("#pk-go").disabled = SELECTED.size === 0;
     $("#pk-go").textContent = SELECTED.size === 0 ? "Select at least one indicator" : `Download ${fmtSel === "pdf" ? "PDF report" : "CSV"} (${SELECTED.size})`;
     $("#pk-csvopt").hidden = fmtSel !== "csv";
   }
   function openPicker(format) {
-    if (!SELECTED.size) IND.forEach((i) => SELECTED.add(i.code));
+    if (!SELECTED.size) IND.forEach((i) => { if (i.dl) SELECTED.add(i.code); });
     $(`input[name=pk-fmt][value=${format}]`).checked = true;
     $("#pk-q").value = "";
     renderPicker();
@@ -335,7 +349,7 @@
     $("#picker").classList.remove("open"); $("#scrim2").classList.remove("open");
     setTimeout(() => { $("#picker").hidden = true; $("#scrim2").hidden = true; }, 200);
   }
-  function selectedInds() { return IND.filter((i) => SELECTED.has(i.code)); }
+  function selectedInds() { return IND.filter((i) => i.dl && SELECTED.has(i.code)); }
 
   /* ---------- downloads ---------- */
   function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600); }
@@ -370,7 +384,7 @@
     doc.setFont("helvetica", "normal"); doc.setFontSize(12);
     doc.text("Key national indicators - latest published figures", M, 44);
     doc.setFontSize(9.5); doc.setTextColor(200, 210, 225);
-    doc.text(`Report generated ${today} · ${inds.length} of ${IND.length} indicators · ${SOURCE === "live" ? "live data from the Google Sheet" : "built-in data copy"}`, M, 62);
+    doc.text(`Report generated ${today} · ${inds.length} of ${IND.filter((i) => i.dl).length} indicators · ${SOURCE === "live" ? "live data from the Google Sheet" : "built-in data copy"}`, M, 62);
     let heads = HEADLINE.filter(([c]) => sel.has(c));
     if (!heads.length) heads = inds.slice(0, 6).map((i) => [i.code, i.name]);
     let y = 94;
@@ -466,13 +480,13 @@
       if (b.dataset.themeBox) {
         const q = ($("#pk-q").value || "").trim().toLowerCase();
         const t = THEMES.find((x) => x.n === Number(b.dataset.themeBox));
-        t.inds.filter((i) => matches(i, q)).forEach((i) => (b.checked ? SELECTED.add(i.code) : SELECTED.delete(i.code)));
+        t.inds.filter((i) => i.dl && matches(i, q)).forEach((i) => (b.checked ? SELECTED.add(i.code) : SELECTED.delete(i.code)));
       }
       renderPicker();
     });
-    $("#pk-all").addEventListener("click", () => { IND.forEach((i) => SELECTED.add(i.code)); renderPicker(); });
+    $("#pk-all").addEventListener("click", () => { IND.forEach((i) => { if (i.dl) SELECTED.add(i.code); }); renderPicker(); });
     $("#pk-none").addEventListener("click", () => { SELECTED.clear(); renderPicker(); });
-    $("#pk-head").addEventListener("click", () => { SELECTED.clear(); HEADLINE.forEach(([c]) => SELECTED.add(c)); renderPicker(); });
+    $("#pk-head").addEventListener("click", () => { SELECTED.clear(); HEADLINE.forEach(([c]) => { const i = IND.find((x) => x.code === c); if (i && i.dl) SELECTED.add(c); }); renderPicker(); });
     $("#pk-go").addEventListener("click", () => {
       const inds = selectedInds(); if (!inds.length) return;
       if ($("input[name=pk-fmt]:checked").value === "pdf") downloadPDF(inds);
@@ -486,6 +500,7 @@
   async function start() {
     let rows;
     try { rows = await loadLive(); SOURCE = "live"; } catch (e) { rows = await loadFallback(); SOURCE = "fallback"; }
+    try { VIS = await loadVisibility(); } catch (e) { VIS = {}; }
     build(rows);
     renderStatus(); renderHeadline(); renderChips(); renderSections(); window.__ffFit();
     $("#updated").textContent = new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });

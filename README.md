@@ -27,6 +27,17 @@ To get the link: in the Sheet, go to **File → Share → Publish to web**. Choo
 
 If the link cannot be read, the page uses `data/data.json` and the status line says "Showing the built-in copy of the data".
 
+## Showing or hiding an indicator (editors)
+
+The **Indicator_List** tab has two columns that control each indicator:
+
+| Column | Y (or blank) | N |
+|---|---|---|
+| `Show_on_dashboard` | Card is shown on the website | Card is hidden |
+| `Include_in_downloads` | Listed in the PDF/CSV picker | Left out of all downloads |
+
+The website reads these from the Indicator_List tab's own *Publish to web* CSV link (`listUrl` in `index.html`). If that link is not set, every indicator is shown.
+
 ## Sub-indicator groups
 
 Groups are detected from indicator names: a name ending in " - Women", " - Men", " - Girl" or " - Boy", a name starting with "Annual", "Wet-season" or "Dry-season", or two indicators with the same name but different units. A few groups are set in `EXPLICIT` at the top of `assets/app.js`, such as population by sex, economy by sector, workforce by sector and child malnutrition. To add a sub-indicator, follow the same naming in the Sheet, for example "Adult literacy rate - Women".
