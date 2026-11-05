@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cambodia in Numbers</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Key national indicators for Cambodia: the latest published figure for each indicator, with its year, trend and source. Download the report as PDF.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script>
+  /* Where the live data comes from. The Google Sheet must be shared as "Anyone with the link: Viewer". */
+  window.FF_CONFIG = {
+    sheetId: "1j1dRK9OH2RaLin_HGo8foV755h6d4A7-B8i6AGwIxJs",
+    dataGid: "1654958049",
+    fallback: "data/data.json",
+    firstYear: 2013
+  };
+</script>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Cambodia in Numbers, back to top">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--ink)"/><path d="M7 23h18M9 23v-6l3-2v8M14 23V11l2-4 2 4v12M20 23v-8l3 2v6" fill="none" stroke="var(--saffron)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      Cambodia in Numbers
+    </a>
+    <label class="search" for="q">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Find an indicator, e.g. rice, poverty, stunting" autocomplete="off" aria-label="Find an indicator">
+    </label>
+    <div class="actions">
+      <button class="btn" id="csv" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4zM4 10h16M10 4v16"/></svg>CSV</button>
+      <button class="btn primary" id="pdf" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download <span class="long">report </span>PDF</span></button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <h1>Cambodia <span class="k">in numbers</span></h1>
+        <p class="lede">The latest published figure for 110 national indicators, from population and the economy to rice, schooling and health. Sources publish on different schedules, so every figure carries its own year.</p>
+        <span class="status" id="status"><i></i>Loading the data…</span>
+      </div>
+      <div class="headline" id="headline" aria-label="Headline figures"></div>
+    </div>
+  </section>
+
+  <nav class="themes" aria-label="Themes">
+    <div class="wrap"><div class="chips" id="chips"></div></div>
+  </nav>
+
+  <div class="wrap">
+    <div class="legend" aria-label="How recent each figure is">
+      <span>Year of the latest figure:</span>
+      <span class="yr fresh">Up to date</span><span class="yr aging">2–3 years old</span><span class="yr stale">4+ years old</span>
+      <span>· Bars under each card show which years have data; the gold bar is the latest.</span>
+    </div>
+    <div id="sections"></div>
+  </div>
+
+  <section class="coverage" id="coverage">
+    <div class="wrap">
+      <h2>Which years have data</h2>
+      <p>Each row is an indicator and each column a year. Filled cells have a figure; the gold cell is the year shown on the card. Gaps show where a new survey or report is still awaited.</p>
+      <div class="matrix-box" id="matrix"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <h3>About the data</h3>
+      <p>Figures come from the Fact &amp; Figure Database, compiled from the National Institute of Statistics, line ministries, the World Bank, UN agencies and other publishers. Open any indicator to see every year with its source and link.</p>
+      <p>Editors update the Google Sheet; this page reads it each time it opens. Last loaded <span id="updated">–</span>.</p>
+    </div>
+    <div>
+      <h3>Downloads</h3>
+      <p>The PDF report lists the latest figure and year for every indicator, grouped by theme. The CSV has the same table for use in Excel.</p>
+    </div>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="d-title">
+  <button class="close" id="d-close" type="button" aria-label="Close details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  <div id="d-body"></div>
+</aside>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
