@@ -65,7 +65,7 @@
       Indicator: String(r.Indicator || "").replace(/[​-‍﻿]/g, "").trim(),
       Value: typeof r.Value === "number" ? r.Value : parseFloat(String(r.Value).replace(/,/g, "")),
       Unit: r.Unit || "", Remark: r.Remark || "", Author: r.Author || "", Report: r.Report || "",
-      Source_title: r.Source_title || "", URL: r.URL || "", Published_date: r.Published_date || "", Notes: r.Notes || ""
+      Source_title: r.Source_title || "", URL: r.URL || "", Published_date: r.Published_date || "", Accessed_date: r.Accessed_date || "", Notes: r.Notes || ""
     })).filter((r) => r.Code && r.Year > 1900 && isFinite(r.Value));
   }
   /* Live data: the "Publish to web" CSV of the Data tab. Only that tab is public; the Sheet stays private. */
@@ -172,11 +172,26 @@
   const yrChip = (y) => `<span class="yr ${fresh(y)}" title="${FRESH_LABEL[fresh(y)]}">${y}</span>`;
 
   /* ---------- render ---------- */
+  /* Latest date an editor entered a figure: the most recent Accessed_date in the Data tab. */
+  function lastUpdated() {
+    let best = null;
+    ROWS.forEach((r) => {
+      if (!r.Accessed_date) return;
+      const s = String(r.Accessed_date).trim();
+      const m = /^Date\((\d+),(\d+),(\d+)\)$/.exec(s);
+      const d = m ? new Date(+m[1], +m[2], +m[3]) : new Date(s);
+      if (!isNaN(d) && d.getFullYear() > 2000 && (!best || d > best)) best = d;
+    });
+    return best;
+  }
   function renderStatus() {
+    const d = lastUpdated();
+    const txt = d ? d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "–";
     const el = $("#status");
-    const live = SOURCE === "live";
-    el.className = "status" + (live ? " live" : "");
-    el.innerHTML = `<i></i>${live ? "Live from the Google Sheet" : "Showing the built-in copy of the data"} · ${IND.filter((i) => i.dash).length} indicators · ${ROWS.filter((r) => (VIS[r.Code] || { dash: true }).dash).length} figures`;
+    el.className = "status live";
+    el.innerHTML = `<i></i>Data last updated by the editor on ${txt}`;
+    $("#updated").textContent = txt;
+    $("#n-ind").textContent = IND.filter((i) => i.dash).length;
   }
   function renderHeadline() {
     $("#headline").innerHTML = HEADLINE.map(([code, label]) => {
@@ -523,7 +538,6 @@
     try { VIS = await loadVisibility(); } catch (e) { VIS = {}; }
     build(rows);
     renderStatus(); renderHeadline(); renderChips(); renderSections(); window.__ffFit();
-    $("#updated").textContent = new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
     let m = /^#i(\d+)-(\d+)$/.exec(location.hash); if (m) openDetail(m[1] + "." + m[2]);
     m = /^#(g\d+-\d+)$/.exec(location.hash); if (m) openGroup(m[1]);
   }
