@@ -322,3 +322,12 @@ footer p { margin: 0 0 8px; max-width: 70ch; }
   .g-rings .ring { width: 66px; height: 66px; }
 }
 .donut .dc.sm { font-size: 17px; }
+
+/* single-indicator chart types */
+.card .say { display: block; margin-top: 5px; font-family: var(--body); font-size: 12px; font-weight: 600; color: var(--tc); letter-spacing: 0; }
+.card svg.card-ring { width: 64px; height: 64px; flex: none; margin: -14px 6px -4px 0; }
+.card svg.card-ring .rc { font-size: 0; }
+.card .spark .pl { font-family: var(--body); font-size: 9px; font-weight: 600; fill: var(--muted); }
+.legend.key { margin-top: -6px; }
+.legend .kt { display: inline-flex; align-items: center; gap: 6px; }
+.legend .kt svg { width: 15px; height: 15px; }

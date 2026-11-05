@@ -206,10 +206,56 @@
     $("#chips").innerHTML = all + THEMES.filter((t) => t.inds.some((i) => i.dash)).map((t) =>
       `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ""}</span>${esc(t.name)} <span class="n">${t.inds.filter((i) => i.dash).length}</span></button>`).join("");
   }
+  /* Picks the picture that best explains a single indicator:
+     ring    a share out of 100 (urban population, electricity access…), with "about 4 in 10"
+     columns a yearly rate of change (GDP growth, inflation): one column per year
+     pair    only two figures: then and now side by side
+     none    the figure never changed (number of provinces…): no chart, just "unchanged since"
+     line    everything else: trend line since the first year */
+  function visKind(i) {
+    const vs = i.series.map((r) => r.Value), u = unitShort(i.unit);
+    if (vs.length === 1) return "single";
+    if (new Set(vs).size <= 1) return "none";
+    if (/growth|inflation/i.test(i.name)) return "columns";
+    if (u.startsWith("%") && vs.every((v) => v >= 0 && v <= 100)) return "ring";
+    if (vs.length === 2) return "pair";
+    return "line";
+  }
+  function inTen(v) {
+    if (v >= 97) return "nearly all";
+    if (v >= 9.5) return `about ${Math.round(v / 10)} in 10`;
+    if (v >= 1) return `about 1 in ${Math.round(100 / v)}`;
+    return v > 0 ? `fewer than 1 in 100` : "none";
+  }
+  function columns(i, w, h, color) {
+    const s = i.series, y0 = YEARS[0], n = YEARS.length, bw = w / n;
+    const vs = s.map((r) => r.Value), hi = Math.max(0, ...vs), lo = Math.min(0, ...vs), span = hi - lo || 1;
+    const zy = 2 + (hi / span) * (h - 4);
+    const bars = s.map((r) => {
+      const x = (r.Year - y0) * bw + 1, y = 2 + ((hi - Math.max(r.Value, 0)) / span) * (h - 4), bh = Math.max(1, (Math.abs(r.Value) / span) * (h - 4));
+      const last = r.Year === i.last.Year;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(2, bw - 2).toFixed(1)}" height="${bh.toFixed(1)}" rx="1" fill="${last ? "var(--saffron)" : color}" fill-opacity="${r.Value < 0 && !last ? .45 : last ? 1 : .7}"><title>${r.Year}: ${fmt(r.Value)}</title></rect>`;
+    }).join("");
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><line x1="0" x2="${w}" y1="${zy.toFixed(1)}" y2="${zy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>${bars}</svg>`;
+  }
+  function pair(i, w, h, color) {
+    const a = i.series[0], b = i.series[1], hi = Math.max(Math.abs(a.Value), Math.abs(b.Value)) || 1, bh = (v) => Math.max(2, (Math.abs(v) / hi) * (h - 12));
+    const bar = (r, x, c) => `<rect x="${x}" y="${(h - 11 - bh(r.Value)).toFixed(1)}" width="30" height="${bh(r.Value).toFixed(1)}" rx="3" fill="${c}"/><text x="${x + 15}" y="${h - 1}" text-anchor="middle" class="pl">${r.Year}</text>`;
+    return `<svg class="spark" viewBox="0 0 ${w} ${h + 0}" aria-hidden="true">${bar(a, 22, `color-mix(in srgb, ${color} 45%, transparent)`)}${bar(b, 58, "var(--saffron)")}</svg>`;
+  }
   function card(i) {
-    return `<button class="card" data-code="${i.code}" style="--tc:var(--t${i.tn})">
+    let k = visKind(i); const u = unitShort(i.unit), color = `var(--t${i.tn})`;
+    let vis = "", say = "";
+    if (k === "single") { k = unitShort(i.unit).startsWith("%") && i.last.Value <= 100 ? "ring" : "single"; if (k === "single") say = "the only figure so far"; }
+    if (k === "ring") { vis = ringSVG(i.last.Value, color, 64, 8).replace('class="ring"', 'class="ring card-ring"').replace(/<text[\s\S]*?<\/text>/, ""); say = inTen(i.last.Value); }
+    else if (k === "columns") vis = columns(i, 104, 34, color);
+    else if (k === "pair") vis = pair(i, 104, 34, color);
+    else if (k === "line") vis = spark(i, 104, 34, color);
+    else say = `unchanged since ${i.series[0].Year}`;
+    const unitHtml = k === "ring" ? "" : `<small${u.length > 10 ? ' class="long"' : ""}>${esc(u)}</small>`;
+    return `<button class="card v-${k}" data-code="${i.code}" style="--tc:${color}">
       <span class="top"><span class="name" title="${esc(i.name)}">${esc(i.name)}</span><span class="code">${i.code}</span></span>
-      <span class="mid"><span class="val num">${fmt(i.last.Value)}<small${unitShort(i.unit).length > 10 ? ' class="long"' : ""}>${esc(unitShort(i.unit))}</small></span>${spark(i, 104, 34, `var(--t${i.tn})`)}</span>
+      <span class="mid"><span class="val num">${fmt(i.last.Value)}${k === "ring" ? "<small>%</small>" : unitHtml}${say ? `<span class="say">${esc(say)}</span>` : ""}</span>${vis}</span>
       ${strip(i)}
       <span class="bot">${yrChip(i.last.Year)}${deltaText(i)}</span></button>`;
   }
