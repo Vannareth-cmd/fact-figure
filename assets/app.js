@@ -48,7 +48,7 @@
   }
   function fresh(y) { const age = NOW - y; return age <= 1 ? "fresh" : age <= 3 ? "aging" : "stale"; }
   const FRESH_LABEL = { fresh: "Up to date", aging: "2–3 years old", stale: "4+ years old" };
-  const seriesColor = (tn, k) => [`var(--t${tn})`, "var(--river)", "var(--saffron)", "var(--t4)", "var(--t9)"][k % 5];
+  const seriesColor = (tn, k) => [`var(--t${tn})`, "var(--river)", tn === 3 || tn === 8 ? "var(--t4)" : "var(--saffron)", "var(--t4)", "var(--t9)"][k % 5];
 
   let ROWS = [], IND = [], BY = {}, THEMES = [], YEARS = [], SOURCE = "", ACTIVE = 0, QUERY = "";
   const SELECTED = new Set();
@@ -213,7 +213,7 @@
       ${strip(i)}
       <span class="bot">${yrChip(i.last.Year)}${deltaText(i)}</span></button>`;
   }
-  function groupCard(g, members) {
+  function barCard(g, members) {
     const codes = members.map((m) => m.ind.code).sort((a, b) => parseFloat(a) - parseFloat(b));
     const maxV = g.sameUnit ? Math.max(...members.map((m) => Math.abs(m.ind.last.Value))) || 1 : 0;
     const unit = g.sameUnit ? unitShort(members[0].ind.unit) : "";
@@ -229,6 +229,82 @@
       <div class="g-top"><div><h3 class="name">${esc(g.name)}</h3><span class="code">${codes[0]}–${codes[codes.length - 1]} · ${members.length} sub-indicators${unit ? " · " + esc(unit) : ""}</span></div>
       <button class="g-open" data-group="${g.id}" aria-label="Compare ${esc(g.name)} over time">${g.sameUnit ? "Compare trends" : "See trends"}</button></div>
       <div class="subs">${rows}</div></article>`;
+  }
+  /* Which picture suits a group of sub-indicators:
+     "parts"   shares of one whole (Male + Female, the three sectors) → donut
+     "season"  wet + dry season add up to the whole year → donut, whole year in the centre
+     "gauge"   separate rates in % (literacy, stunting…) → one ring per sub-indicator
+     "share"   a % and a count of the same thing (IDPoor) → one ring plus the count
+     "bars"    anything else → bars or small trend lines */
+  function groupKind(g, members) {
+    const ind = members.map((m) => m.ind), pct = (i) => unitShort(i.unit).startsWith("%");
+    const vals = ind.map((i) => i.last.Value);
+    if (g.sameUnit && ind.every(pct)) {
+      const sum = vals.reduce((x, y) => x + y, 0);
+      if (members.length >= 2 && sum >= 90 && sum <= 102) return "parts";
+      if (vals.every((v) => v >= 0 && v <= 100)) return "gauge";
+    }
+    const whole = members.find((m) => m.label === "Whole year");
+    if (g.sameUnit && whole && members.length >= 3) {
+      const rest = members.filter((m) => m !== whole).reduce((x, m) => x + m.ind.last.Value, 0);
+      if (Math.abs(rest - whole.ind.last.Value) <= 0.03 * whole.ind.last.Value) return "season";
+    }
+    if (!g.sameUnit && members.length === 2 && ind.filter(pct).length === 1) { const p = ind.find(pct).last.Value; if (p >= 0 && p <= 100) return "share"; }
+    return "bars";
+  }
+  function donutSVG(segs, size, sw, center, sub) {
+    const r = (size - sw) / 2, c = 2 * Math.PI * r; let off = 0;
+    const total = segs.reduce((x, s) => x + s.v, 0) || 1;
+    const arcs = segs.map((s) => {
+      const len = (s.v / total) * c, gapL = segs.length > 1 ? Math.min(2, len / 3) : 0;
+      const el = `<circle r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" stroke="${s.color}" stroke-width="${sw}" stroke-dasharray="${(len - gapL).toFixed(2)} ${(c - len + gapL).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"><title>${esc(s.label)}: ${fmt(s.v)}</title></circle>`;
+      off += len; return el;
+    }).join("");
+    return `<svg class="donut" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true"><g transform="rotate(-90 ${size / 2} ${size / 2})">${arcs}</g>
+      ${center ? `<text x="50%" y="${sub ? "47%" : "50%"}" text-anchor="middle" dominant-baseline="middle" class="dc${center.length > 5 ? " sm" : ""}">${esc(center)}</text>` : ""}
+      ${sub ? `<text x="50%" y="66%" text-anchor="middle" dominant-baseline="middle" class="ds">${esc(sub)}</text>` : ""}</svg>`;
+  }
+  function ringSVG(v, color, size, sw) {
+    const r = (size - sw) / 2, c = 2 * Math.PI * r, len = Math.max(0, Math.min(100, v)) / 100 * c;
+    return `<svg class="ring" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true"><g transform="rotate(-90 ${size / 2} ${size / 2})">
+      <circle r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" stroke="var(--cell-empty)" stroke-width="${sw}"/>
+      <circle r="${r}" cx="${size / 2}" cy="${size / 2}" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${len.toFixed(2)} ${c.toFixed(2)}"/></g>
+      <text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" class="rc">${fmt(v)}<tspan class="rp" dx="1">%</tspan></text></svg>`;
+  }
+  function gHead(g, members, unit) {
+    const codes = members.map((m) => m.ind.code).sort((a, b) => parseFloat(a) - parseFloat(b));
+    return `<div class="g-top"><div><h3 class="name">${esc(g.name)}</h3><span class="code">${codes[0]}–${codes[codes.length - 1]} · ${members.length} sub-indicators${unit ? " · " + esc(unit) : ""}</span></div>
+      <button class="g-open" data-group="${g.id}" aria-label="Compare ${esc(g.name)} over time">${g.sameUnit ? "Compare trends" : "See trends"}</button></div>`;
+  }
+  function groupCard(g, members) {
+    const kind = groupKind(g, members);
+    if (kind === "bars") return barCard(g, members);
+    const unit = g.sameUnit ? unitShort(members[0].ind.unit) : "";
+    let body = "";
+    if (kind === "parts" || kind === "season") {
+      const whole = kind === "season" ? members.find((m) => m.label === "Whole year") : null;
+      const parts = members.filter((m) => m !== whole);
+      const segs = parts.map((m, k) => ({ v: m.ind.last.Value, label: m.label, color: seriesColor(g.tn, k), m }));
+      const sum = segs.reduce((x, s) => x + s.v, 0);
+      if (kind === "parts" && sum < 99.5) segs.push({ v: 100 - sum, label: "Not allocated", color: "var(--cell-empty)", rest: true });
+      const big = parts.reduce((x, m) => (m.ind.last.Value > x.ind.last.Value ? m : x), parts[0]);
+      const center = whole ? fmt(whole.ind.last.Value) : fmt(big.ind.last.Value) + "%";
+      const sub = whole ? "whole year" : big.label.toLowerCase();
+      const share = (v) => (kind === "season" ? ` <em>${Math.round((v / whole.ind.last.Value) * 100)}%</em>` : "");
+      const rows = segs.map((s) => s.rest
+        ? `<div class="dl rest"><span class="sl"><i style="background:var(--cell-empty)"></i>Not allocated</span><span class="sv num">${fmt(s.v)}<small>%</small></span><span></span></div>`
+        : `<button class="dl" data-code="${s.m.ind.code}" style="--sc:${s.color}"><span class="sl"><i></i>${esc(s.label)}</span><span class="sv num">${fmt(s.v)}<small>${kind === "parts" ? "%" : ""}</small>${share(s.v)}</span><span class="sy">${yrChip(s.m.ind.last.Year)}</span></button>`).join("");
+      const wholeRow = whole ? `<button class="dl total" data-code="${whole.ind.code}"><span class="sl">Whole year</span><span class="sv num">${fmt(whole.ind.last.Value)}</span><span class="sy">${yrChip(whole.ind.last.Year)}</span></button>` : "";
+      body = `<div class="g-donut">${donutSVG(segs, 118, 20, center, sub)}<div class="dlist">${rows}${wholeRow}</div></div>`;
+    } else if (kind === "gauge") {
+      body = `<div class="g-rings">${members.map((m, k) => `<button class="rg" data-code="${m.ind.code}" style="--sc:${seriesColor(g.tn, k)}">${ringSVG(m.ind.last.Value, seriesColor(g.tn, k), 76, 9)}<span class="rl">${esc(m.label)}</span>${yrChip(m.ind.last.Year)}</button>`).join("")}</div>`;
+    } else if (kind === "share") {
+      const p = members.find((m) => unitShort(m.ind.unit).startsWith("%")), n = members.find((m) => m !== p);
+      body = `<div class="g-share"><button class="rg" data-code="${p.ind.code}">${ringSVG(p.ind.last.Value, seriesColor(g.tn, 0), 96, 12)}</button>
+        <div class="sh-txt"><button class="dl" data-code="${p.ind.code}" style="--sc:${seriesColor(g.tn, 0)}"><span class="sl"><i></i>${esc(p.label)}</span><span class="sv num">${fmt(p.ind.last.Value)}<small>%</small></span><span class="sy">${yrChip(p.ind.last.Year)}</span></button>
+        <button class="dl" data-code="${n.ind.code}" style="--sc:var(--muted)"><span class="sl"><i></i>${esc(n.label)}</span><span class="sv num">${fmt(n.ind.last.Value)}<small>${esc(unitShort(n.ind.unit))}</small></span><span class="sy">${yrChip(n.ind.last.Year)}</span></button></div></div>`;
+    }
+    return `<article class="gcard k-${kind}" style="--tc:var(--t${g.tn})">${gHead(g, members, kind === "share" ? "" : unit)}${body}</article>`;
   }
   function matches(i, q) { return !q || i.name.toLowerCase().includes(q) || i.code.includes(q) || (i.group && i.group.name.toLowerCase().includes(q)) || (i.last.Author || "").toLowerCase().includes(q); }
   function renderSections() {
