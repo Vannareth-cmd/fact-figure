@@ -1,8 +1,9 @@
-/* Cambodia Fact & Figures — reads the Google Sheet "Data" tab live, falls back to data/data.json. */
+/* Cambodia Fact and Figure — reads the published Data tab of the Google Sheet, falls back to data/data.json. */
 (function () {
   "use strict";
   const CFG = Object.assign({ csvUrl: "", fallback: "data/data.json", firstYear: 2013 }, window.FF_CONFIG || {});
   const NOW = new Date().getFullYear();
+  const TITLE = "Cambodia Fact and Figure";
 
   const ICONS = {
     1: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg>',
@@ -22,9 +23,23 @@
   ];
   const UNIT_SHORT = { "Percent": "%", "Percent of GDP": "% of GDP", "-": "", "Million": "million", "Billion USD": "billion USD", "Tonnes/hectare": "t/ha", "Million tonnes": "million t", "Million hectares": "million ha", "Population per Sq.km": "people/km²" };
 
+  /* Sub-indicator groups. Explicit groups first; then automatic rules (" - Women", "Wet-season …", same name with another unit). */
+  const EXPLICIT = {
+    "2.02": ["Population by sex", "Male"], "2.03": ["Population by sex", "Female"],
+    "3.04": ["Economy by sector", "Agriculture"], "3.05": ["Economy by sector", "Industry and construction"], "3.06": ["Economy by sector", "Services"],
+    "4.03": ["Workforce by sector", "Agriculture"], "4.04": ["Workforce by sector", "Industry"], "4.05": ["Workforce by sector", "Services"],
+    "9.12": ["Under-5 child malnutrition", "Underweight"], "9.13": ["Under-5 child malnutrition", "Stunting"], "9.14": ["Under-5 child malnutrition", "Wasting"]
+  };
+  const SUFFIX = /^(.*?)\s+-\s+(Women|Men|Girl|Girls|Boy|Boys|Female|Male|Urban|Rural)$/i;
+  const SEASON = /^(Annual|Wet-season|Dry-season)\s+(.+)$/i;
+  const SEASON_LABEL = { "annual": "Whole year", "wet-season": "Wet season", "dry-season": "Dry season" };
+  const SUB_ORDER = ["Whole year", "Wet season", "Dry season", "All", "Women", "Men", "Girls", "Boys", "Female", "Male"];
+
   const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const unitShort = (u) => (u in UNIT_SHORT ? UNIT_SHORT[u] : u || "");
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   function fmt(v) {
     if (v == null || isNaN(v)) return "–";
     const a = Math.abs(v);
@@ -33,8 +48,10 @@
   }
   function fresh(y) { const age = NOW - y; return age <= 1 ? "fresh" : age <= 3 ? "aging" : "stale"; }
   const FRESH_LABEL = { fresh: "Up to date", aging: "2–3 years old", stale: "4+ years old" };
+  const seriesColor = (tn, k) => [`var(--t${tn})`, "var(--river)", "var(--saffron)", "var(--t4)", "var(--t9)"][k % 5];
 
   let ROWS = [], IND = [], BY = {}, THEMES = [], YEARS = [], SOURCE = "", ACTIVE = 0, QUERY = "";
+  const SELECTED = new Set();
 
   /* ---------- data ---------- */
   function normCode(c) {
@@ -45,7 +62,8 @@
   function clean(rows) {
     return rows.map((r) => ({
       Year: Number(r.Year), Code: normCode(r.Code), Theme: String(r.Theme || "").trim(),
-      Indicator: String(r.Indicator || "").trim(), Value: typeof r.Value === "number" ? r.Value : parseFloat(String(r.Value).replace(/,/g, "")),
+      Indicator: String(r.Indicator || "").replace(/[​-‍﻿]/g, "").trim(),
+      Value: typeof r.Value === "number" ? r.Value : parseFloat(String(r.Value).replace(/,/g, "")),
       Unit: r.Unit || "", Remark: r.Remark || "", Author: r.Author || "", Report: r.Report || "",
       Source_title: r.Source_title || "", URL: r.URL || "", Published_date: r.Published_date || "", Notes: r.Notes || ""
     })).filter((r) => r.Code && r.Year > 1900 && isFinite(r.Value));
@@ -65,21 +83,51 @@
     const res = await fetch(CFG.fallback, { cache: "no-store" });
     return clean(await res.json());
   }
+
+  function groupInfo(i, names) {
+    if (EXPLICIT[i.code]) return { g: EXPLICIT[i.code][0], label: EXPLICIT[i.code][1] };
+    let m = SUFFIX.exec(i.name);
+    if (m) return { g: m[1], label: cap(m[2].toLowerCase()).replace(/^Girl$/, "Girls").replace(/^Boy$/, "Boys") };
+    if (names.some((n) => SUFFIX.test(n) && SUFFIX.exec(n)[1] === i.name)) return { g: i.name, label: "All" };
+    m = SEASON.exec(i.name);
+    if (m) return { g: cap(m[2]), label: SEASON_LABEL[m[1].toLowerCase()] };
+    return { g: i.name, label: "" };
+  }
   function build(rows) {
     ROWS = rows; BY = {};
     rows.forEach((r) => { (BY[r.Code] = BY[r.Code] || []).push(r); });
     IND = Object.keys(BY).sort((a, b) => parseFloat(a) - parseFloat(b) || a.localeCompare(b)).map((code) => {
       const s = BY[code].slice().sort((a, b) => a.Year - b.Year);
       const last = s[s.length - 1], prev = s.length > 1 ? s[s.length - 2] : null;
-      const tn = parseInt(code, 10);
-      return { code, tn, theme: last.Theme.replace(/^\d+\.\s*/, ""), name: last.Indicator, unit: last.Unit, series: s, last, prev };
+      return { code, tn: parseInt(code, 10), theme: last.Theme.replace(/^\d+\.\s*/, ""), name: last.Indicator, unit: last.Unit, series: s, last, prev };
     });
-    const tmap = {};
-    IND.forEach((i) => { (tmap[i.tn] = tmap[i.tn] || { n: i.tn, name: i.theme, items: [] }).items.push(i); });
-    THEMES = Object.values(tmap).sort((a, b) => a.n - b.n);
     const maxY = Math.max(NOW, ...rows.map((r) => r.Year));
     const minY = Math.min(CFG.firstYear, ...rows.map((r) => r.Year));
     YEARS = []; for (let y = minY; y <= maxY; y++) YEARS.push(y);
+
+    const tmap = {};
+    IND.forEach((i) => { (tmap[i.tn] = tmap[i.tn] || { n: i.tn, name: i.theme, inds: [] }).inds.push(i); });
+    THEMES = Object.values(tmap).sort((a, b) => a.n - b.n);
+    THEMES.forEach((t) => {
+      const names = t.inds.map((i) => i.name);
+      const gmap = new Map();
+      t.inds.forEach((i) => {
+        const gi = groupInfo(i, names);
+        const key = gi.g.toLowerCase();
+        if (!gmap.has(key)) gmap.set(key, { name: gi.g, members: [] });
+        gmap.get(key).members.push({ ind: i, label: gi.label });
+      });
+      t.entries = [];
+      gmap.forEach((g) => {
+        if (g.members.length === 1) { t.entries.push({ type: "one", ind: g.members[0].ind }); return; }
+        const units = new Set(g.members.map((m) => m.ind.unit));
+        g.members.forEach((m) => { if (!m.label) m.label = units.size > 1 ? (m.ind.unit === "Percent" ? "Share (%)" : m.ind.unit === "-" ? "Value" : cap(m.ind.unit)) : m.ind.name; });
+        g.members.sort((a, b) => { const x = SUB_ORDER.indexOf(a.label), y = SUB_ORDER.indexOf(b.label); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y) || parseFloat(a.ind.code) - parseFloat(b.ind.code); });
+        g.members.forEach((m) => { m.ind.group = g; m.ind.sub = m.label; });
+        g.sameUnit = units.size === 1; g.tn = t.n; g.id = "g" + g.members[0].ind.code.replace(".", "-");
+        t.entries.push({ type: "group", group: g });
+      });
+    });
   }
 
   /* ---------- small graphics ---------- */
@@ -101,11 +149,11 @@
     return `<div class="strip" style="--yrs:${YEARS.length}" title="Years with data, ${YEARS[0]}–${YEARS[YEARS.length - 1]}">` +
       YEARS.map((y) => `<span class="${y === ind.last.Year ? "last" : have.has(y) ? "on" : ""}"></span>`).join("") + "</div>";
   }
-  function deltaText(ind) {
+  function deltaText(ind, short) {
     if (!ind.prev) return "";
     const d = ind.last.Value - ind.prev.Value;
     const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "■";
-    return `<span class="delta">${arrow} ${fmt(Math.abs(d))} since ${ind.prev.Year}</span>`;
+    return `<span class="delta">${arrow} ${fmt(Math.abs(d))}${short ? "" : " since " + ind.prev.Year}</span>`;
   }
   const yrChip = (y) => `<span class="yr ${fresh(y)}" title="${FRESH_LABEL[fresh(y)]}">${y}</span>`;
 
@@ -127,7 +175,7 @@
   function renderChips() {
     const all = `<button class="chip" data-t="0" aria-pressed="${ACTIVE === 0}" style="--tc:var(--river)"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span>All themes <span class="n">${IND.length}</span></button>`;
     $("#chips").innerHTML = all + THEMES.map((t) =>
-      `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ""}</span>${esc(t.name)} <span class="n">${t.items.length}</span></button>`).join("");
+      `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ""}</span>${esc(t.name)} <span class="n">${t.inds.length}</span></button>`).join("");
   }
   function card(i) {
     return `<button class="card" data-code="${i.code}" style="--tc:var(--t${i.tn})">
@@ -136,34 +184,42 @@
       ${strip(i)}
       <span class="bot">${yrChip(i.last.Year)}${deltaText(i)}</span></button>`;
   }
+  function groupCard(g, members) {
+    const codes = members.map((m) => m.ind.code);
+    const maxV = g.sameUnit ? Math.max(...members.map((m) => Math.abs(m.ind.last.Value))) || 1 : 0;
+    const unit = g.sameUnit ? unitShort(members[0].ind.unit) : "";
+    const rows = members.map((m, k) => {
+      const i = m.ind, w = g.sameUnit ? Math.max(2, (Math.abs(i.last.Value) / maxV) * 100) : 0;
+      return `<button class="sub" data-code="${i.code}" style="--sc:${seriesColor(g.tn, k)}">
+        <span class="sl"><i></i>${esc(m.label)}</span>
+        ${g.sameUnit ? `<span class="track"><span style="width:${w.toFixed(1)}%"></span></span>` : `<span class="track none">${spark(i, 120, 22, seriesColor(g.tn, k))}</span>`}
+        <span class="sv num">${fmt(i.last.Value)}<small>${g.sameUnit ? "" : esc(unitShort(i.unit))}</small></span>
+        <span class="sy">${yrChip(i.last.Year)}</span></button>`;
+    }).join("");
+    return `<article class="gcard" style="--tc:var(--t${g.tn})">
+      <div class="g-top"><div><h3 class="name">${esc(g.name)}</h3><span class="code">${codes[0]}–${codes[codes.length - 1]} · ${members.length} sub-indicators${unit ? " · " + esc(unit) : ""}</span></div>
+      <button class="g-open" data-group="${g.id}" aria-label="Compare ${esc(g.name)} over time">${g.sameUnit ? "Compare trends" : "See trends"}</button></div>
+      <div class="subs">${rows}</div></article>`;
+  }
+  function matches(i, q) { return !q || i.name.toLowerCase().includes(q) || i.code.includes(q) || (i.group && i.group.name.toLowerCase().includes(q)) || (i.last.Author || "").toLowerCase().includes(q); }
   function renderSections() {
     const q = QUERY.toLowerCase();
-    let html = "", count = 0;
+    let html = "";
     THEMES.forEach((t) => {
       if (ACTIVE && ACTIVE !== t.n) return;
-      const items = t.items.filter((i) => !q || i.name.toLowerCase().includes(q) || i.code.includes(q) || (i.last.Author || "").toLowerCase().includes(q));
-      if (!items.length) return;
-      count += items.length;
-      const newest = Math.max(...items.map((i) => i.last.Year)), oldest = Math.min(...items.map((i) => i.last.Year));
+      const parts = []; let shown = [];
+      t.entries.forEach((e) => {
+        if (e.type === "one") { if (matches(e.ind, q)) { parts.push(card(e.ind)); shown.push(e.ind); } }
+        else { const ms = e.group.members.filter((m) => matches(m.ind, q)); if (ms.length) { parts.push(ms.length > 1 ? groupCard(e.group, ms) : card(ms[0].ind)); shown = shown.concat(ms.map((m) => m.ind)); } }
+      });
+      if (!parts.length) return;
+      const newest = Math.max(...shown.map((i) => i.last.Year)), oldest = Math.min(...shown.map((i) => i.last.Year));
       html += `<section class="section" id="theme-${t.n}" style="--tc:var(--t${t.n})">
         <div class="sec-head"><span class="badge">${ICONS[t.n] || ""}</span><div><h2>${esc(t.name)}</h2>
-        <div class="sub">${items.length} indicator${items.length > 1 ? "s" : ""} · latest figures from ${oldest === newest ? newest : oldest + " to " + newest}</div></div></div>
-        <div class="cards">${items.map(card).join("")}</div></section>`;
+        <div class="sub-h">${shown.length} indicator${shown.length > 1 ? "s" : ""} · latest figures from ${oldest === newest ? newest : oldest + " to " + newest}</div></div></div>
+        <div class="cards">${parts.join("")}</div></section>`;
     });
     $("#sections").innerHTML = html || `<p class="empty">No indicator matches “${esc(QUERY)}”. Try a shorter word, such as “rice” or “poverty”.</p>`;
-  }
-  function renderCoverage() {
-    const cols = `minmax(150px, 2.6fr) repeat(${YEARS.length}, minmax(16px, 1fr))`;
-    let h = `<div class="matrix" style="grid-template-columns:${cols}"><div></div>` + YEARS.map((y) => `<div class="yh">${String(y).slice(2)}</div>`).join("");
-    THEMES.forEach((t) => {
-      h += `<div class="th" style="--tc:var(--t${t.n})">${t.n}. ${esc(t.name)}</div>`;
-      t.items.forEach((i) => {
-        const have = new Set(i.series.map((r) => r.Year));
-        h += `<div class="rn" data-code="${i.code}" title="${esc(i.name)}">${i.code} ${esc(i.name)}</div>` +
-          YEARS.map((y) => `<div class="c ${y === i.last.Year ? "last" : have.has(y) ? "on" : ""}" style="--tc:var(--t${t.n})" title="${esc(i.name)} · ${y}${have.has(y) ? ": " + fmt(i.series.find((r) => r.Year === y).Value) : ": no data"}"></div>`).join("");
-      });
-    });
-    $("#matrix").innerHTML = h + "</div>";
   }
 
   /* ---------- detail drawer ---------- */
@@ -175,45 +231,74 @@
     for (let v = a; v <= b + step / 2; v += step) t.push(+v.toFixed(10));
     return t;
   }
-  function bigChart(i) {
-    const W = 600, H = 260, L = 52, R = 16, T = 14, B = 30;
-    const s = i.series, vs = s.map((r) => r.Value);
+  /* lines: [{ind, color, label}] — all in the same unit */
+  function lineChart(lines, unit, H = 260) {
+    const W = 600, L = 52, R = 16, T = 16, B = 30;
+    const vs = [].concat(...lines.map((l) => l.ind.series.map((r) => r.Value)));
     let lo = Math.min(...vs), hi = Math.max(...vs);
     if (lo >= 0 && lo / (hi || 1) < 0.35) lo = 0;
     const ticks = niceTicks(lo, hi); lo = ticks[0]; hi = ticks[ticks.length - 1];
     const y0 = YEARS[0], y1 = YEARS[YEARS.length - 1];
     const px = (y) => L + ((y - y0) / (y1 - y0)) * (W - L - R);
     const py = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-    const c = `var(--t${i.tn})`;
     let g = ticks.map((t) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${py(t)}" y2="${py(t)}"/><text class="ax" x="${L - 8}" y="${py(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join("");
     g += YEARS.filter((y, k) => YEARS.length <= 8 || k % 2 === 0 || y === y1).map((y) => `<text class="ax" x="${px(y)}" y="${H - 8}" text-anchor="middle">${y}</text>`).join("");
-    const pts = s.map((r) => [px(r.Year), py(r.Value), r]);
-    const line = pts.map((p, k) => (k ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join("");
-    const area = line + `L${pts[pts.length - 1][0].toFixed(1)} ${py(lo)}L${pts[0][0].toFixed(1)} ${py(lo)}Z`;
-    const dots = pts.map((p, k) => `<circle class="pt" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${k === pts.length - 1 ? 5.5 : 3.5}" fill="${k === pts.length - 1 ? "var(--saffron)" : c}" stroke="var(--surface)" stroke-width="2"><title>${p[2].Year}: ${fmt(p[2].Value)} ${esc(unitShort(i.unit))}</title></circle>`).join("");
-    const e = pts[pts.length - 1];
-    const lab = `<text x="${Math.min(e[0], W - R - 4)}" y="${e[1] - 12}" text-anchor="end" font-weight="700" font-size="13" fill="var(--ink)" font-family="var(--body)">${fmt(e[2].Value)}</text>`;
-    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(i.name)} by year">${g}<path d="${area}" fill="${c}" fill-opacity=".13"/><path d="${line}" fill="none" stroke="${c}" stroke-width="2.4" stroke-linejoin="round"/>${dots}${lab}</svg>`;
+    const single = lines.length === 1;
+    lines.forEach((l) => {
+      const pts = l.ind.series.map((r) => [px(r.Year), py(r.Value), r]);
+      const line = pts.map((p, k) => (k ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join("");
+      if (single) g += `<path d="${line}L${pts[pts.length - 1][0].toFixed(1)} ${py(lo)}L${pts[0][0].toFixed(1)} ${py(lo)}Z" fill="${l.color}" fill-opacity=".13"/>`;
+      g += `<path d="${line}" fill="none" stroke="${l.color}" stroke-width="2.4" stroke-linejoin="round"/>`;
+      g += pts.map((p, k) => { const last = k === pts.length - 1; return `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${last ? 5 : 3.2}" fill="${last && single ? "var(--saffron)" : l.color}" stroke="var(--surface)" stroke-width="2"><title>${esc(l.label)} ${p[2].Year}: ${fmt(p[2].Value)} ${esc(unitShort(unit))}</title></circle>`; }).join("");
+      const e = pts[pts.length - 1];
+      g += `<text x="${Math.min(e[0], W - R - 2)}" y="${e[1] - 10}" text-anchor="end" font-weight="700" font-size="12.5" fill="var(--ink)" font-family="var(--body)">${fmt(e[2].Value)}</text>`;
+    });
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(lines.map((l) => l.label).join(", "))} by year">${g}</svg>`;
+  }
+  function sourceCell(r) {
+    return `${esc(r.Author)}${r.Report ? " — " + (r.URL ? `<a href="${esc(r.URL)}" target="_blank" rel="noopener">${esc(r.Report)}</a>` : esc(r.Report)) : r.URL ? ` <a href="${esc(r.URL)}" target="_blank" rel="noopener">link</a>` : ""}${r.Remark ? `<div class="note">${esc(r.Remark)}</div>` : ""}`;
+  }
+  function showDrawer(tn, html, hash) {
+    $("#drawer").style.setProperty("--tc", `var(--t${tn})`);
+    $("#d-body").innerHTML = html;
+    $("#scrim").hidden = false; $("#drawer").hidden = false;
+    requestAnimationFrame(() => { $("#scrim").classList.add("open"); $("#drawer").classList.add("open"); });
+    $("#drawer").scrollTop = 0; $("#d-close").focus();
+    try { history.replaceState(null, "", "#" + hash); } catch (e) { }
   }
   function openDetail(code) {
     const i = IND.find((x) => x.code === code); if (!i) return;
     const rows = i.series.slice().reverse();
-    $("#drawer").style.setProperty("--tc", `var(--t${i.tn})`);
-    $("#d-body").innerHTML = `
+    const g = i.group;
+    const crumbs = g ? `<button class="crumb" data-group="${g.id}">${esc(g.name)}</button>` : "";
+    showDrawer(i.tn, `
       <span class="d-theme"><span class="ic">${ICONS[i.tn] || ""}</span>${i.tn}. ${esc(i.theme)} · ${i.code}</span>
+      ${crumbs ? `<div class="crumbs">Part of ${crumbs}</div>` : ""}
       <h2 id="d-title">${esc(i.name)}</h2>
       <div class="d-big"><span class="val num">${fmt(i.last.Value)}</span><span class="unit">${esc(i.unit === "-" ? "" : i.unit)}</span></div>
       <div class="d-meta">${yrChip(i.last.Year)}<span>${FRESH_LABEL[fresh(i.last.Year)]}</span>${deltaText(i)}</div>
-      <div class="chart">${bigChart(i)}</div>
+      <div class="chart">${lineChart([{ ind: i, color: `var(--t${i.tn})`, label: i.name }], i.unit)}</div>
       <div class="d-table-wrap"><table class="d-table"><thead><tr><th>Year</th><th style="text-align:right">Value</th><th>Source</th></tr></thead><tbody>
-      ${rows.map((r, k) => `<tr class="${k === 0 ? "latest" : ""}"><td class="num">${r.Year}</td><td class="v num">${fmt(r.Value)}</td>
-        <td>${esc(r.Author)}${r.Report ? " — " + (r.URL ? `<a href="${esc(r.URL)}" target="_blank" rel="noopener">${esc(r.Report)}</a>` : esc(r.Report)) : r.URL ? ` <a href="${esc(r.URL)}" target="_blank" rel="noopener">link</a>` : ""}
-        ${r.Remark ? `<div class="note">${esc(r.Remark)}</div>` : ""}</td></tr>`).join("")}
-      </tbody></table></div>`;
-    $("#scrim").hidden = false; $("#drawer").hidden = false;
-    requestAnimationFrame(() => { $("#scrim").classList.add("open"); $("#drawer").classList.add("open"); });
-    $("#drawer").scrollTop = 0; $("#d-close").focus();
-    try { history.replaceState(null, "", "#" + "i" + code.replace(".", "-")); } catch (e) { }
+      ${rows.map((r, k) => `<tr class="${k === 0 ? "latest" : ""}"><td class="num">${r.Year}</td><td class="v num">${fmt(r.Value)}</td><td>${sourceCell(r)}</td></tr>`).join("")}
+      </tbody></table></div>`, "i" + code.replace(".", "-"));
+  }
+  function findGroup(id) { for (const t of THEMES) for (const e of t.entries) if (e.type === "group" && e.group.id === id) return e.group; return null; }
+  function openGroup(id) {
+    const g = findGroup(id); if (!g) return;
+    const ms = g.members, first = ms[0].ind;
+    let body = "";
+    const legend = `<div class="legend-s">${ms.map((m, k) => `<button class="lg" data-code="${m.ind.code}" style="--sc:${seriesColor(g.tn, k)}"><i></i>${esc(m.label)} <b class="num">${fmt(m.ind.last.Value)}</b> ${yrChip(m.ind.last.Year)}</button>`).join("")}</div>`;
+    if (g.sameUnit) {
+      const years = Array.from(new Set([].concat(...ms.map((m) => m.ind.series.map((r) => r.Year))))).sort((a, b) => b - a);
+      body = legend + `<div class="chart">${lineChart(ms.map((m, k) => ({ ind: m.ind, color: seriesColor(g.tn, k), label: m.label })), first.unit, 280)}</div>
+        <div class="d-table-wrap"><table class="d-table"><thead><tr><th>Year</th>${ms.map((m) => `<th style="text-align:right">${esc(m.label)}</th>`).join("")}</tr></thead><tbody>
+        ${years.map((y) => `<tr><td class="num">${y}</td>${ms.map((m) => { const r = m.ind.series.find((x) => x.Year === y); return `<td class="v num">${r ? fmt(r.Value) : "–"}</td>`; }).join("")}</tr>`).join("")}
+        </tbody></table></div><p class="note">Unit: ${esc(first.unit === "-" ? "index" : first.unit)}. Open a sub-indicator above to see its sources.</p>`;
+    } else {
+      body = legend + ms.map((m, k) => `<h3 class="d-sub">${esc(m.label)} <span>${esc(m.ind.unit)}</span></h3><div class="chart">${lineChart([{ ind: m.ind, color: seriesColor(g.tn, k), label: m.label }], m.ind.unit, 200)}</div>`).join("");
+    }
+    showDrawer(g.tn, `<span class="d-theme"><span class="ic">${ICONS[g.tn] || ""}</span>${g.tn}. ${esc(first.theme)} · ${ms.length} sub-indicators</span>
+      <h2 id="d-title">${esc(g.name)}</h2>${body}`, g.id);
   }
   function closeDetail() {
     $("#scrim").classList.remove("open"); $("#drawer").classList.remove("open");
@@ -221,94 +306,140 @@
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { }
   }
 
+  /* ---------- download picker ---------- */
+  function renderPicker() {
+    const q = ($("#pk-q").value || "").trim().toLowerCase();
+    $("#pk-list").innerHTML = THEMES.map((t) => {
+      const items = t.inds.filter((i) => matches(i, q)); if (!items.length) return "";
+      const on = items.filter((i) => SELECTED.has(i.code)).length;
+      return `<fieldset class="pk-theme" style="--tc:var(--t${t.n})"><legend><label><input type="checkbox" data-theme-box="${t.n}" ${on === items.length ? "checked" : ""} ${on > 0 && on < items.length ? 'data-mixed="1"' : ""}> <span class="ic">${ICONS[t.n] || ""}</span>${t.n}. ${esc(t.name)}</label><span class="n">${on}/${items.length}</span></legend>
+        ${items.map((i) => `<label class="pk-item${i.group ? " is-sub" : ""}"><input type="checkbox" data-pick="${i.code}" ${SELECTED.has(i.code) ? "checked" : ""}><span class="c">${i.code}</span><span class="t">${i.group ? `<em>${esc(i.group.name)}:</em> ${esc(i.sub)}` : esc(i.name)}</span><span class="y">${i.last.Year}</span></label>`).join("")}</fieldset>`;
+    }).join("") || `<p class="empty">No indicator matches “${esc(q)}”.</p>`;
+    $$("#pk-list [data-mixed]").forEach((b) => { b.indeterminate = true; });
+    const fmtSel = $("input[name=pk-fmt]:checked").value;
+    $("#pk-count").textContent = `${SELECTED.size} of ${IND.length} indicators selected`;
+    $("#pk-go").disabled = SELECTED.size === 0;
+    $("#pk-go").textContent = SELECTED.size === 0 ? "Select at least one indicator" : `Download ${fmtSel === "pdf" ? "PDF report" : "CSV"} (${SELECTED.size})`;
+    $("#pk-csvopt").hidden = fmtSel !== "csv";
+  }
+  function openPicker(format) {
+    if (!SELECTED.size) IND.forEach((i) => SELECTED.add(i.code));
+    $(`input[name=pk-fmt][value=${format}]`).checked = true;
+    $("#pk-q").value = "";
+    renderPicker();
+    $("#picker").hidden = false; $("#scrim2").hidden = false;
+    requestAnimationFrame(() => { $("#picker").classList.add("open"); $("#scrim2").classList.add("open"); });
+    $("#pk-q").focus();
+  }
+  function closePicker() {
+    $("#picker").classList.remove("open"); $("#scrim2").classList.remove("open");
+    setTimeout(() => { $("#picker").hidden = true; $("#scrim2").hidden = true; }, 200);
+  }
+  function selectedInds() { return IND.filter((i) => SELECTED.has(i.code)); }
+
   /* ---------- downloads ---------- */
   function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600); }
   function save(blob, name) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
-  const ascii = (s) => String(s || "").replace(/[​-‍﻿]/g, "").replace(/[^\x20-\x7E -ÿ²–—]/g, "").replace(/–|—/g, "-").replace(/²/g, "2").trim();
-  function downloadCSV() {
-    const head = ["Code", "Theme", "Indicator", "Latest value", "Unit", "Latest year", "Previous value", "Previous year", "Source", "Report", "URL"];
-    const lines = [head].concat(IND.map((i) => [i.code, i.theme, i.name, i.last.Value, i.unit, i.last.Year, i.prev ? i.prev.Value : "", i.prev ? i.prev.Year : "", i.last.Author, i.last.Report, i.last.URL]));
-    const csv = lines.map((r) => r.map((c) => { c = String(c == null ? "" : c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(",")).join("\n");
-    save(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }), `cambodia-fact-figures-latest-${new Date().toISOString().slice(0, 10)}.csv`);
-    toast("Downloaded the latest figures as CSV");
+  const ascii = (s) => String(s || "").replace(/[​-‍﻿]/g, "").replace(/–|—/g, "-").replace(/²/g, "2").replace(/[^\x20-\x7E -ÿ]/g, "").trim();
+  const csvLine = (r) => r.map((c) => { c = String(c == null ? "" : c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(",");
+  function downloadCSV(inds, allYears) {
+    let lines;
+    if (allYears) {
+      lines = [["Code", "Theme", "Indicator", "Group", "Sub-indicator", "Year", "Value", "Unit", "Remark", "Source", "Report", "URL"]];
+      inds.forEach((i) => i.series.forEach((r) => lines.push([i.code, i.theme, i.name, i.group ? i.group.name : "", i.sub || "", r.Year, r.Value, i.unit, r.Remark, r.Author, r.Report, r.URL])));
+    } else {
+      lines = [["Code", "Theme", "Indicator", "Group", "Sub-indicator", "Latest value", "Unit", "Latest year", "Previous value", "Previous year", "Source", "Report", "URL"]];
+      inds.forEach((i) => lines.push([i.code, i.theme, i.name, i.group ? i.group.name : "", i.sub || "", i.last.Value, i.unit, i.last.Year, i.prev ? i.prev.Value : "", i.prev ? i.prev.Year : "", i.last.Author, i.last.Report, i.last.URL]));
+    }
+    save(new Blob(["﻿" + lines.map(csvLine).join("\n")], { type: "text/csv;charset=utf-8" }), `cambodia-fact-and-figure-${allYears ? "all-years" : "latest"}-${new Date().toISOString().slice(0, 10)}.csv`);
+    toast(`Downloaded ${inds.length} indicators as CSV`);
   }
-  function downloadPDF() {
+  function downloadPDF(inds) {
     if (!window.jspdf || !window.jspdf.jsPDF) { toast("The PDF tool did not load. Check your connection and try again."); return; }
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const PW = 210, M = 14, INK = [20, 33, 61], MUTED = [86, 102, 122], TEAL = [18, 105, 122], SAF = [201, 131, 0];
     const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-    // cover
+    const sel = new Set(inds.map((i) => i.code));
     doc.setFillColor(...INK); doc.rect(0, 0, PW, 78, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(30);
-    doc.text("Cambodia in numbers", M, 34);
+    doc.text(TITLE, M, 34);
     doc.setFont("helvetica", "normal"); doc.setFontSize(12);
-    doc.text("Fact & Figure Database - key national indicators", M, 44);
+    doc.text("Key national indicators - latest published figures", M, 44);
     doc.setFontSize(9.5); doc.setTextColor(200, 210, 225);
-    doc.text(`Report generated ${today} · ${IND.length} indicators · ${ROWS.length} figures · ${SOURCE === "live" ? "live data from the Google Sheet" : "built-in data copy"}`, M, 62);
-    doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-    doc.text("Headline figures", M, 94);
-    const bw = (PW - 2 * M - 8) / 3, bh = 30;
-    HEADLINE.forEach(([code, label], k) => {
-      const i = IND.find((x) => x.code === code); if (!i) return;
-      const x = M + (k % 3) * (bw + 4), y = 100 + Math.floor(k / 3) * (bh + 4);
-      doc.setDrawColor(210, 220, 224); doc.setFillColor(246, 249, 249); doc.roundedRect(x, y, bw, bh, 2.5, 2.5, "FD");
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...MUTED); doc.text(label, x + 4, y + 7);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(...INK); doc.text(fmt(i.last.Value), x + 4, y + 18);
-      const vw = doc.getTextWidth(fmt(i.last.Value)); doc.setFontSize(8.5); doc.setFont("helvetica", "normal"); doc.setTextColor(...MUTED);
-      doc.text(ascii(unitShort(i.unit)), x + 6 + vw, y + 18);
-      doc.setTextColor(...SAF); doc.setFont("helvetica", "bold"); doc.text(`Latest year: ${i.last.Year}`, x + 4, y + 25.5);
-    });
-    let y = 178;
+    doc.text(`Report generated ${today} · ${inds.length} of ${IND.length} indicators · ${SOURCE === "live" ? "live data from the Google Sheet" : "built-in data copy"}`, M, 62);
+    let heads = HEADLINE.filter(([c]) => sel.has(c));
+    if (!heads.length) heads = inds.slice(0, 6).map((i) => [i.code, i.name]);
+    let y = 94;
+    if (heads.length) {
+      doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("Headline figures", M, y);
+      const bw = (PW - 2 * M - 8) / 3, bh = 30;
+      heads.forEach(([code, label], k) => {
+        const i = IND.find((x) => x.code === code); if (!i) return;
+        const x = M + (k % 3) * (bw + 4), by = y + 6 + Math.floor(k / 3) * (bh + 4);
+        doc.setDrawColor(210, 220, 224); doc.setFillColor(246, 249, 249); doc.roundedRect(x, by, bw, bh, 2.5, 2.5, "FD");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...MUTED); doc.text(doc.splitTextToSize(ascii(label), bw - 8)[0], x + 4, by + 7);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(...INK); doc.text(fmt(i.last.Value), x + 4, by + 18);
+        const vw = doc.getTextWidth(fmt(i.last.Value)); doc.setFontSize(8.5); doc.setFont("helvetica", "normal"); doc.setTextColor(...MUTED);
+        doc.text(ascii(unitShort(i.unit)), x + 6 + vw, by + 18);
+        doc.setTextColor(...SAF); doc.setFont("helvetica", "bold"); doc.text(`Latest year: ${i.last.Year}`, x + 4, by + 25.5);
+      });
+      y += 6 + Math.ceil(heads.length / 3) * 34 + 10;
+    }
     doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("How to read this report", M, y);
     doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...MUTED);
-    const txt = "Each indicator shows its most recent published figure. Sources publish on different schedules, so the year differs from one indicator to another; always read the value together with its year. Change compares the latest figure with the previous year that has data. Full sources and links are listed with every theme.";
-    doc.text(doc.splitTextToSize(txt, PW - 2 * M), M, y + 7);
-    // freshness summary
-    const cnt = { fresh: 0, aging: 0, stale: 0 }; IND.forEach((i) => cnt[fresh(i.last.Year)]++);
-    y = 214; doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("How recent are the figures?", M, y);
-    const cols = { fresh: [47, 138, 85], aging: [185, 122, 0], stale: [176, 69, 59] }; let x0 = M; const tot = IND.length, barW = PW - 2 * M;
-    ["fresh", "aging", "stale"].forEach((k) => { const w = barW * cnt[k] / tot; doc.setFillColor(...cols[k]); doc.rect(x0, y + 5, w, 7, "F"); x0 += w; });
+    doc.text(doc.splitTextToSize("Each indicator shows its most recent published figure. Sources publish on different schedules, so the year differs from one indicator to another; always read the value together with its year. Change compares the latest figure with the previous year that has data. Sub-indicators (for example women and men) are listed under their main indicator.", PW - 2 * M), M, y + 7);
+    y += 36;
+    const cnt = { fresh: 0, aging: 0, stale: 0 }; inds.forEach((i) => cnt[fresh(i.last.Year)]++);
+    doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("How recent are the figures?", M, y);
+    const cols = { fresh: [47, 138, 85], aging: [185, 122, 0], stale: [176, 69, 59] }; let x0 = M; const barW = PW - 2 * M;
+    ["fresh", "aging", "stale"].forEach((k) => { const w = barW * cnt[k] / inds.length; if (w > 0) { doc.setFillColor(...cols[k]); doc.rect(x0, y + 5, w, 7, "F"); } x0 += w; });
     doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
     let lx = M; ["fresh", "aging", "stale"].forEach((k) => {
       doc.setFillColor(...cols[k]); doc.circle(lx + 1.5, y + 18.5, 1.5, "F"); doc.setTextColor(...MUTED);
-      const t = `${FRESH_LABEL[k].replace("–", "-")}: ${cnt[k]} indicators`; doc.text(t, lx + 5, y + 19.5); lx += doc.getTextWidth(t) + 14;
+      const t = `${FRESH_LABEL[k].replace("–", "-")}: ${cnt[k]}`; doc.text(t, lx + 5, y + 19.5); lx += doc.getTextWidth(t) + 14;
     });
-    // theme tables
     doc.addPage(); let cy = 16;
     THEMES.forEach((t) => {
+      const items = t.inds.filter((i) => sel.has(i.code)); if (!items.length) return;
       if (cy > 235) { doc.addPage(); cy = 16; }
       const rgb = THEME_RGB[t.n] || TEAL;
       doc.setFillColor(...rgb); doc.roundedRect(M, cy, PW - 2 * M, 11, 2, 2, "F");
       doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(12.5); doc.text(`${t.n}. ${ascii(t.name)}`, M + 4, cy + 7.6);
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.text(`${t.items.length} indicators`, PW - M - 4, cy + 7.4, { align: "right" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.text(`${items.length} indicator${items.length > 1 ? "s" : ""}`, PW - M - 4, cy + 7.4, { align: "right" });
+      const body = []; let lastGroup = null;
+      items.forEach((i) => {
+        if (i.group && i.group !== lastGroup) { body.push([{ content: ascii(i.group.name), colSpan: 7, styles: { fontStyle: "bold", fillColor: [238, 243, 244], textColor: INK } }]); }
+        lastGroup = i.group || null;
+        body.push([i.code, (i.group ? "   " + ascii(i.sub) : ascii(i.name)), fmt(i.last.Value), ascii(i.unit === "-" ? "" : i.unit), String(i.last.Year),
+          i.prev ? `${i.last.Value - i.prev.Value > 0 ? "+" : ""}${fmt(i.last.Value - i.prev.Value)} (since ${i.prev.Year})` : "", ascii([i.last.Author, i.last.Report].filter(Boolean).join(", "))]);
+      });
       doc.autoTable({
         startY: cy + 13, margin: { left: M, right: M, bottom: 18, top: 16 },
-        head: [["Code", "Indicator", "Value", "Unit", "Year", "Change", "Source"]],
-        body: t.items.map((i) => [i.code, ascii(i.name), fmt(i.last.Value), ascii(i.unit === "-" ? "" : i.unit), String(i.last.Year),
-          i.prev ? `${i.last.Value - i.prev.Value > 0 ? "+" : ""}${fmt(i.last.Value - i.prev.Value)} (since ${i.prev.Year})` : "", ascii([i.last.Author, i.last.Report].filter(Boolean).join(", "))]),
+        head: [["Code", "Indicator", "Value", "Unit", "Year", "Change", "Source"]], body,
         styles: { font: "helvetica", fontSize: 8.4, cellPadding: 2, textColor: INK, lineColor: [220, 228, 231], lineWidth: 0.1, valign: "middle" },
         headStyles: { fillColor: [244, 247, 248], textColor: MUTED, fontStyle: "bold", fontSize: 8 },
-        columnStyles: { 0: { cellWidth: 11 }, 1: { cellWidth: 52 }, 2: { halign: "right", fontStyle: "bold", cellWidth: 17 }, 3: { cellWidth: 22 }, 4: { halign: "center", cellWidth: 11, textColor: SAF, fontStyle: "bold" }, 5: { cellWidth: 26, textColor: MUTED }, 6: { textColor: MUTED } },
-        alternateRowStyles: { fillColor: [250, 252, 252] }
+        columnStyles: { 0: { cellWidth: 11 }, 1: { cellWidth: 52 }, 2: { halign: "right", fontStyle: "bold", cellWidth: 17 }, 3: { cellWidth: 22 }, 4: { halign: "center", cellWidth: 11, textColor: SAF, fontStyle: "bold" }, 5: { cellWidth: 26, textColor: MUTED }, 6: { textColor: MUTED } }
       });
       cy = doc.lastAutoTable.finalY + 10;
     });
     const n = doc.getNumberOfPages();
     for (let p = 1; p <= n; p++) {
       doc.setPage(p); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...MUTED);
-      doc.text(`Cambodia in numbers · generated ${today}`, M, 289); doc.text(`Page ${p} of ${n}`, PW - M, 289, { align: "right" });
+      doc.text(`${TITLE} · generated ${today}`, M, 289); doc.text(`Page ${p} of ${n}`, PW - M, 289, { align: "right" });
     }
-    doc.save(`cambodia-in-numbers-${new Date().toISOString().slice(0, 10)}.pdf`);
-    toast("Report downloaded as PDF");
+    doc.save(`cambodia-fact-and-figure-${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast(`Report downloaded: ${inds.length} indicators`);
   }
 
   /* ---------- events ---------- */
   function bind() {
     document.addEventListener("click", (e) => {
+      if (e.target.closest("#picker")) return;
+      const gr = e.target.closest("[data-group]"); if (gr) { openGroup(gr.dataset.group); return; }
       const c = e.target.closest("[data-code]"); if (c) { openDetail(c.dataset.code); return; }
       const t = e.target.closest(".chip"); if (t) {
         ACTIVE = Number(t.dataset.t); renderChips(); renderSections();
@@ -318,12 +449,37 @@
     });
     $("#d-close").addEventListener("click", closeDetail);
     $("#scrim").addEventListener("click", closeDetail);
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#drawer").hidden) closeDetail(); });
+    $("#scrim2").addEventListener("click", closePicker);
+    $("#pk-close").addEventListener("click", closePicker);
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!$("#picker").hidden) closePicker(); else if (!$("#drawer").hidden) closeDetail();
+    });
     $("#q").addEventListener("input", (e) => { QUERY = e.target.value.trim(); renderSections(); });
-    $("#pdf").addEventListener("click", downloadPDF);
-    $("#csv").addEventListener("click", downloadCSV);
+    $("#pdf").addEventListener("click", () => openPicker("pdf"));
+    $("#csv").addEventListener("click", () => openPicker("csv"));
+    $("#pk-q").addEventListener("input", renderPicker);
+    $$("input[name=pk-fmt]").forEach((r) => r.addEventListener("change", renderPicker));
+    $("#pk-list").addEventListener("change", (e) => {
+      const b = e.target;
+      if (b.dataset.pick) { b.checked ? SELECTED.add(b.dataset.pick) : SELECTED.delete(b.dataset.pick); }
+      if (b.dataset.themeBox) {
+        const q = ($("#pk-q").value || "").trim().toLowerCase();
+        const t = THEMES.find((x) => x.n === Number(b.dataset.themeBox));
+        t.inds.filter((i) => matches(i, q)).forEach((i) => (b.checked ? SELECTED.add(i.code) : SELECTED.delete(i.code)));
+      }
+      renderPicker();
+    });
+    $("#pk-all").addEventListener("click", () => { IND.forEach((i) => SELECTED.add(i.code)); renderPicker(); });
+    $("#pk-none").addEventListener("click", () => { SELECTED.clear(); renderPicker(); });
+    $("#pk-head").addEventListener("click", () => { SELECTED.clear(); HEADLINE.forEach(([c]) => SELECTED.add(c)); renderPicker(); });
+    $("#pk-go").addEventListener("click", () => {
+      const inds = selectedInds(); if (!inds.length) return;
+      if ($("input[name=pk-fmt]:checked").value === "pdf") downloadPDF(inds);
+      else downloadCSV(inds, $("input[name=pk-years]:checked").value === "all");
+    });
     const bar = $(".bar"), themes = $(".themes");
-    const fit = () => { themes.style.top = `calc(env(safe-area-inset-top, 0px) + ${bar.offsetHeight}px)`; };
+    const fit = () => { themes.style.setProperty("--bar-h", bar.offsetHeight + "px"); const sticky = getComputedStyle(themes).position === "sticky"; document.documentElement.style.setProperty("--stick", (bar.offsetHeight + (sticky ? themes.offsetHeight : 0)) + "px"); };
     fit(); window.addEventListener("resize", fit);
   }
 
@@ -331,9 +487,10 @@
     let rows;
     try { rows = await loadLive(); SOURCE = "live"; } catch (e) { rows = await loadFallback(); SOURCE = "fallback"; }
     build(rows);
-    renderStatus(); renderHeadline(); renderChips(); renderSections(); renderCoverage();
+    renderStatus(); renderHeadline(); renderChips(); renderSections();
     $("#updated").textContent = new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
-    const m = /^#i(\d+)-(\d+)$/.exec(location.hash); if (m) openDetail(m[1] + "." + m[2]);
+    let m = /^#i(\d+)-(\d+)$/.exec(location.hash); if (m) openDetail(m[1] + "." + m[2]);
+    m = /^#(g\d+-\d+)$/.exec(location.hash); if (m) openGroup(m[1]);
   }
   bind(); start().catch((e) => { $("#sections").innerHTML = `<p class="empty">The data could not be loaded (${esc(e.message)}). Refresh the page to try again.</p>`; });
 })();

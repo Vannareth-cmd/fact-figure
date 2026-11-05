@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cambodia in Numbers</title>
+<title>Cambodia Fact and Figure</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Key national indicators for Cambodia: the latest published figure for each indicator, with its year, trend and source. Download the report as PDF.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,17 +24,17 @@
 <body>
 <header class="bar">
   <div class="wrap">
-    <a class="brand" href="#top" aria-label="Cambodia in Numbers, back to top">
+    <a class="brand" href="#top" aria-label="Cambodia Fact and Figure, back to top">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="var(--ink)"/><path d="M7 23h18M9 23v-6l3-2v8M14 23V11l2-4 2 4v12M20 23v-8l3 2v6" fill="none" stroke="var(--saffron)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
-      Cambodia in Numbers
+      Cambodia Fact and Figure
     </a>
     <label class="search" for="q">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="q" type="search" placeholder="Find an indicator, e.g. rice, poverty, stunting" autocomplete="off" aria-label="Find an indicator">
     </label>
     <div class="actions">
-      <button class="btn" id="csv" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4zM4 10h16M10 4v16"/></svg>CSV</button>
-      <button class="btn primary" id="pdf" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download <span class="long">report </span>PDF</span></button>
+      <button class="btn" id="csv" type="button" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4zM4 10h16M10 4v16"/></svg>CSV</button>
+      <button class="btn primary" id="pdf" type="button" aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Download <span class="long">report </span>PDF</span></button>
     </div>
   </div>
 </header>
@@ -43,7 +43,7 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <h1>Cambodia <span class="k">in numbers</span></h1>
+        <h1>Cambodia <span class="k">fact and figure</span></h1>
         <p class="lede">The latest published figure for 110 national indicators, from population and the economy to rice, schooling and health. Sources publish on different schedules, so every figure carries its own year.</p>
         <span class="status" id="status"><i></i>Loading the data…</span>
       </div>
@@ -59,18 +59,10 @@
     <div class="legend" aria-label="How recent each figure is">
       <span>Year of the latest figure:</span>
       <span class="yr fresh">Up to date</span><span class="yr aging">2–3 years old</span><span class="yr stale">4+ years old</span>
-      <span>· Bars under each card show which years have data; the gold bar is the latest.</span>
+      <span>· The small bars under a card mark the years with data; gold is the latest.</span>
     </div>
     <div id="sections"></div>
   </div>
-
-  <section class="coverage" id="coverage">
-    <div class="wrap">
-      <h2>Which years have data</h2>
-      <p>Each row is an indicator and each column a year. Filled cells have a figure; the gold cell is the year shown on the card. Gaps show where a new survey or report is still awaited.</p>
-      <div class="matrix-box" id="matrix"></div>
-    </div>
-  </section>
 </main>
 
 <footer>
@@ -82,7 +74,7 @@
     </div>
     <div>
       <h3>Downloads</h3>
-      <p>The PDF report lists the latest figure and year for every indicator, grouped by theme. The CSV has the same table for use in Excel.</p>
+      <p>Choose the indicators you need, then download a PDF report or a CSV table for Excel. The CSV can hold the latest figures only, or every year.</p>
     </div>
   </div>
 </footer>
@@ -92,6 +84,34 @@
   <button class="close" id="d-close" type="button" aria-label="Close details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   <div id="d-body"></div>
 </aside>
+<div class="scrim" id="scrim2" hidden></div>
+<section class="picker" id="picker" hidden role="dialog" aria-modal="true" aria-labelledby="pk-title">
+  <div class="pk-head">
+    <h2 id="pk-title">Choose what to download</h2>
+    <button class="close" id="pk-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="pk-opts">
+    <div class="seg" role="radiogroup" aria-label="File type">
+      <label><input type="radio" name="pk-fmt" id="pk-fmt-pdf" value="pdf" checked><span>PDF report</span></label>
+      <label><input type="radio" name="pk-fmt" id="pk-fmt-csv" value="csv"><span>CSV table</span></label>
+    </div>
+    <div class="seg" id="pk-csvopt" role="radiogroup" aria-label="Years in the CSV" hidden>
+      <label><input type="radio" name="pk-years" id="pk-y-latest" value="latest" checked><span>Latest figure</span></label>
+      <label><input type="radio" name="pk-years" id="pk-y-all" value="all"><span>All years</span></label>
+    </div>
+  </div>
+  <div class="pk-tools">
+    <input id="pk-q" type="search" placeholder="Filter the list" autocomplete="off" aria-label="Filter the indicator list">
+    <button class="btn sm" id="pk-all" type="button">Select all</button>
+    <button class="btn sm" id="pk-head" type="button">Headline only</button>
+    <button class="btn sm" id="pk-none" type="button">Clear</button>
+  </div>
+  <div class="pk-list" id="pk-list"></div>
+  <div class="pk-foot">
+    <span id="pk-count"></span>
+    <button class="btn primary" id="pk-go" type="button">Download</button>
+  </div>
+</section>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>

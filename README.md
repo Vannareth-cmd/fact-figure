@@ -1,4 +1,4 @@
-# Cambodia in Numbers
+# Cambodia Fact and Figure
 
 A dashboard of Cambodia's key national indicators, built from the Fact & Figure Database. It is a static site for GitHub Pages: no server and no build step.
 
@@ -8,9 +8,8 @@ A dashboard of Cambodia's key national indicators, built from the Fact & Figure 
 - A colour dot shows how recent each figure is: green means up to date (this year or last year), amber means 2–3 years old, red means 4 or more years old.
 - A trend line, the years that have data, and the change since the previous figure.
 - A detail panel for each indicator, with every year, its source and a link.
-- A matrix of which years have data, so editors can see what still needs updating.
-- **Download report PDF**: a report generated in the browser from the data loaded at that moment.
-- **CSV**: the same table of latest figures, for use in Excel.
+- Sub-indicators (women/men, girls/boys, sectors, seasons, share and count) are grouped on one card with bars, and can be compared on one chart.
+- **Download report PDF** and **CSV**: readers choose the indicators first (whole themes, single indicators or the headline figures). The CSV can hold the latest figure only or all years.
 
 ## Where the data comes from
 
@@ -27,6 +26,10 @@ window.FF_CONFIG = {
 To get the link: in the Sheet, go to **File → Share → Publish to web**. Choose the **Data** tab and **Comma-separated values (.csv)**, turn on **Automatically republish when changes are made**, then click **Publish**.
 
 If the link cannot be read, the page uses `data/data.json` and the status line says "Showing the built-in copy of the data".
+
+## Sub-indicator groups
+
+Groups are detected from indicator names: a name ending in " - Women", " - Men", " - Girl" or " - Boy", a name starting with "Annual", "Wet-season" or "Dry-season", or two indicators with the same name but different units. A few groups are set in `EXPLICIT` at the top of `assets/app.js`, such as population by sex, economy by sector, workforce by sector and child malnutrition. To add a sub-indicator, follow the same naming in the Sheet, for example "Adult literacy rate - Women".
 
 ## Updating figures (editors)
 
