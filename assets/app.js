@@ -26,7 +26,7 @@
   /* Sub-indicator groups. Explicit groups first; then automatic rules (" - Women", "Wet-season …", same name with another unit). */
   const EXPLICIT = {
     "2.02": ["Population by sex", "Male"], "2.03": ["Population by sex", "Female"],
-    "3.04": ["Economy by sector", "Agriculture"], "3.05": ["Economy by sector", "Industry and construction"], "3.06": ["Economy by sector", "Services"],
+    "3.04": ["Economy by sector", "Agriculture"], "3.05": ["Economy by sector", "Industry"], "3.06": ["Economy by sector", "Services"],
     "4.03": ["Workforce by sector", "Agriculture"], "4.04": ["Workforce by sector", "Industry"], "4.05": ["Workforce by sector", "Services"],
     "9.12": ["Under-5 child malnutrition", "Underweight"], "9.13": ["Under-5 child malnutrition", "Stunting"], "9.14": ["Under-5 child malnutrition", "Wasting"]
   };
@@ -121,7 +121,7 @@
       gmap.forEach((g) => {
         if (g.members.length === 1) { t.entries.push({ type: "one", ind: g.members[0].ind }); return; }
         const units = new Set(g.members.map((m) => m.ind.unit));
-        g.members.forEach((m) => { if (!m.label) m.label = units.size > 1 ? (m.ind.unit === "Percent" ? "Share (%)" : m.ind.unit === "-" ? "Value" : cap(m.ind.unit)) : m.ind.name; });
+        g.members.forEach((m) => { if (!m.label) m.label = units.size > 1 ? (m.ind.unit === "Percent" ? "Share" : "Number") : m.ind.name; });
         g.members.sort((a, b) => { const x = SUB_ORDER.indexOf(a.label), y = SUB_ORDER.indexOf(b.label); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y) || parseFloat(a.ind.code) - parseFloat(b.ind.code); });
         g.members.forEach((m) => { m.ind.group = g; m.ind.sub = m.label; });
         g.sameUnit = units.size === 1; g.tn = t.n; g.id = "g" + g.members[0].ind.code.replace(".", "-");
@@ -180,12 +180,12 @@
   function card(i) {
     return `<button class="card" data-code="${i.code}" style="--tc:var(--t${i.tn})">
       <span class="top"><span class="name">${esc(i.name)}</span><span class="code">${i.code}</span></span>
-      <span class="mid"><span class="val num">${fmt(i.last.Value)}<small>${esc(unitShort(i.unit))}</small></span>${spark(i, 104, 34, `var(--t${i.tn})`)}</span>
+      <span class="mid"><span class="val num">${fmt(i.last.Value)}<small${unitShort(i.unit).length > 10 ? ' class="long"' : ""}>${esc(unitShort(i.unit))}</small></span>${spark(i, 104, 34, `var(--t${i.tn})`)}</span>
       ${strip(i)}
       <span class="bot">${yrChip(i.last.Year)}${deltaText(i)}</span></button>`;
   }
   function groupCard(g, members) {
-    const codes = members.map((m) => m.ind.code);
+    const codes = members.map((m) => m.ind.code).sort((a, b) => parseFloat(a) - parseFloat(b));
     const maxV = g.sameUnit ? Math.max(...members.map((m) => Math.abs(m.ind.last.Value))) || 1 : 0;
     const unit = g.sameUnit ? unitShort(members[0].ind.unit) : "";
     const rows = members.map((m, k) => {
@@ -479,15 +479,15 @@
       else downloadCSV(inds, $("input[name=pk-years]:checked").value === "all");
     });
     const bar = $(".bar"), themes = $(".themes");
-    const fit = () => { themes.style.setProperty("--bar-h", bar.offsetHeight + "px"); const sticky = getComputedStyle(themes).position === "sticky"; document.documentElement.style.setProperty("--stick", (bar.offsetHeight + (sticky ? themes.offsetHeight : 0)) + "px"); };
-    fit(); window.addEventListener("resize", fit);
+    window.__ffFit = () => { themes.style.setProperty("--bar-h", bar.offsetHeight + "px"); const sticky = getComputedStyle(themes).position === "sticky"; document.documentElement.style.setProperty("--stick", (bar.offsetHeight + (sticky ? themes.offsetHeight : 0)) + "px"); };
+    __ffFit(); window.addEventListener("resize", __ffFit);
   }
 
   async function start() {
     let rows;
     try { rows = await loadLive(); SOURCE = "live"; } catch (e) { rows = await loadFallback(); SOURCE = "fallback"; }
     build(rows);
-    renderStatus(); renderHeadline(); renderChips(); renderSections();
+    renderStatus(); renderHeadline(); renderChips(); renderSections(); window.__ffFit();
     $("#updated").textContent = new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
     let m = /^#i(\d+)-(\d+)$/.exec(location.hash); if (m) openDetail(m[1] + "." + m[2]);
     m = /^#(g\d+-\d+)$/.exec(location.hash); if (m) openGroup(m[1]);
