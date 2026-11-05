@@ -11,10 +11,11 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="assets/style.css">
 <script>
-  /* Where the live data comes from. The Google Sheet must be shared as "Anyone with the link: Viewer". */
+  /* Where the live data comes from.
+     csvUrl: the "Publish to web" CSV link of the Sheet's Data tab (the Sheet itself stays private).
+     fallback: built-in copy used if the published link cannot be read. */
   window.FF_CONFIG = {
-    sheetId: "1j1dRK9OH2RaLin_HGo8foV755h6d4A7-B8i6AGwIxJs",
-    dataGid: "1654958049",
+    csvUrl: "",
     fallback: "data/data.json",
     firstYear: 2013
   };
@@ -93,6 +94,7 @@
 </aside>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="assets/app.js"></script>

@@ -1,7 +1,7 @@
 /* Cambodia Fact & Figures — reads the Google Sheet "Data" tab live, falls back to data/data.json. */
 (function () {
   "use strict";
-  const CFG = Object.assign({ sheetId: "", dataGid: "", fallback: "data/data.json", firstYear: 2013 }, window.FF_CONFIG || {});
+  const CFG = Object.assign({ csvUrl: "", fallback: "data/data.json", firstYear: 2013 }, window.FF_CONFIG || {});
   const NOW = new Date().getFullYear();
 
   const ICONS = {
@@ -50,29 +50,16 @@
       Source_title: r.Source_title || "", URL: r.URL || "", Published_date: r.Published_date || "", Notes: r.Notes || ""
     })).filter((r) => r.Code && r.Year > 1900 && isFinite(r.Value));
   }
-  /* Google's Visualization endpoint, loaded as a script (JSONP) so it works from any website.
-     It needs the sheet shared as "Anyone with the link: Viewer". */
-  function loadLive() {
-    return new Promise((resolve, reject) => {
-      if (!CFG.sheetId) return reject(new Error("no sheet"));
-      const cb = "__ffSheet" + Date.now();
-      const s = document.createElement("script");
-      const done = (fn, arg) => { clearTimeout(timer); try { delete window[cb]; } catch (e) { window[cb] = undefined; } s.remove(); fn(arg); };
-      const timer = setTimeout(() => done(reject, new Error("timeout")), 12000);
-      window[cb] = (resp) => {
-        if (!resp || resp.status !== "ok" || !resp.table) return done(reject, new Error((resp && resp.errors && resp.errors[0] && resp.errors[0].reason) || "sheet error"));
-        const labels = resp.table.cols.map((c) => (c.label || c.id || "").trim());
-        const rows = resp.table.rows.map((r) => {
-          const o = {}; labels.forEach((l, k) => { const c = r.c[k]; o[l] = c ? (c.v != null ? c.v : c.f) : null; }); return o;
-        });
-        const clean_ = clean(rows);
-        if (clean_.length < 50) return done(reject, new Error("too few rows"));
-        done(resolve, clean_);
-      };
-      s.onerror = () => done(reject, new Error("script error"));
-      s.src = `https://docs.google.com/spreadsheets/d/${CFG.sheetId}/gviz/tq?tqx=out:json;responseHandler:${cb}&headers=1&gid=${CFG.dataGid}&_=${Date.now()}`;
-      document.head.appendChild(s);
-    });
+  /* Live data: the "Publish to web" CSV of the Data tab. Only that tab is public; the Sheet stays private. */
+  async function loadLive() {
+    if (!CFG.csvUrl || !window.Papa) throw new Error("no published link");
+    const sep = CFG.csvUrl.includes("?") ? "&" : "?";
+    const res = await fetch(CFG.csvUrl + sep + "_=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) throw new Error("http " + res.status);
+    const parsed = Papa.parse(await res.text(), { header: true, dynamicTyping: true, skipEmptyLines: true, transformHeader: (h) => h.trim() });
+    const rows = clean(parsed.data);
+    if (rows.length < 50) throw new Error("too few rows");
+    return rows;
   }
   async function loadFallback() {
     const res = await fetch(CFG.fallback, { cache: "no-store" });

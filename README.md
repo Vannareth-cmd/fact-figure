@@ -14,18 +14,19 @@ A dashboard of Cambodia's key national indicators, built from the Fact & Figure 
 
 ## Where the data comes from
 
-When the page opens, it reads the **Data** tab of the Google Sheet. To change the sheet or the tab, edit `window.FF_CONFIG` in `index.html`:
+The Google Sheet stays private. Only its **Data** tab is published, read-only, with Google's *Publish to web*. The page reads that CSV link each time it opens. The link is set in `index.html`:
 
 ```js
 window.FF_CONFIG = {
-  sheetId: "1j1dRK9OH2RaLin_HGo8foV755h6d4A7-B8i6AGwIxJs",  // from the sheet's URL
-  dataGid: "1654958049",                                     // the Data tab's gid=… in the URL
-  fallback: "data/data.json",                                // copy used if the sheet cannot be read
+  csvUrl: "https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&single=true&output=csv",
+  fallback: "data/data.json",   // copy used if the published link cannot be read
   firstYear: 2013
 };
 ```
 
-The sheet must be shared as **Anyone with the link → Viewer**. If the sheet cannot be read, the page uses `data/data.json` and the status line says "Showing the built-in copy of the data".
+To get the link: in the Sheet, go to **File → Share → Publish to web**. Choose the **Data** tab and **Comma-separated values (.csv)**, turn on **Automatically republish when changes are made**, then click **Publish**.
+
+If the link cannot be read, the page uses `data/data.json` and the status line says "Showing the built-in copy of the data".
 
 ## Updating figures (editors)
 
