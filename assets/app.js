@@ -438,116 +438,119 @@
     if (!window.jspdf || !window.jspdf.jsPDF) { toast("The PDF tool did not load. Check your connection and try again."); return; }
     toast("Preparing the PDF…");
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const F = await setupFonts(doc); await loadTitleImages();
-    const PW = 210, PH = 297, M = 10, GAP = 6, COLW = (PW - 2 * M - GAP) / 2, TOP = 11, BOT = PH - 11;
-    const INK = [20, 33, 61], MUTED = [96, 110, 130], SAF = [176, 112, 0], RULE = [226, 232, 236];
-    const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    await loadTitleImages();
     const sel = new Set(inds.map((i) => i.code));
+    const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const y0 = YEARS[0], y1 = YEARS[YEARS.length - 1];
 
     // numbered sources, in order of first use
     const REFS = [], REFIX = {};
-    const refOf = (r) => {
-      const k = [r.Author, r.Report].map((x) => pdfText(x)).filter(Boolean).join(", ") || "Source not given";
-      if (!(k in REFIX)) { REFIX[k] = REFS.length + 1; REFS.push({ k, url: r.URL || "" }); }
-      return REFIX[k];
-    };
+    const keyOf = (r) => [r.Author, r.Report].map((x) => pdfText(x)).filter(Boolean).join(", ") || "Source not given";
+    THEMES.forEach((t) => t.inds.filter((i) => sel.has(i.code)).forEach((i) => { const k = keyOf(i.last); if (!(k in REFIX)) { REFIX[k] = REFS.length + 1; REFS.push(k); } }));
+    const refOf = (r) => REFIX[keyOf(r)];
 
-    // page 1 header
-    titleText(doc, TITLE, M, 16, 20, F.title, INK);
-    doc.setFont(...F.bold); doc.setFontSize(8.5); doc.setTextColor(...INK);
-    doc.text(`Collected, compiled and updated by VAM · Printed on ${today}`, M, 21.5);
-    doc.setFont(...F.body); doc.setFontSize(6.6); doc.setTextColor(...MUTED);
-    doc.text(`Latest published figure for ${inds.length} indicators. Line: trend ${y0}–${y1}, dot = latest figure. Arrow: change since the previous figure. Small number: source, listed at the end.`, M, 25.5);
-    doc.setDrawColor(...INK); doc.setLineWidth(0.4); doc.line(M, 27.8, PW - M, 27.8);
+    // Lays the report out at scale k; the caller shrinks k until it fits on one page.
+    async function render(k) {
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const F = await setupFonts(doc);
+      const PW = 210, PH = 297, M = 6, GAP = 4, COLW = (PW - 2 * M - GAP) / 2;
+      const INK = [20, 33, 61], MUTED = [96, 110, 130], SAF = [176, 112, 0], RULE = [226, 232, 236];
+      const FS = 6.6 * k, LH = 2.45 * k, PAD = 0.9 * k, NAMEW = COLW - 37;
 
-    // two-column flow
-    let col = 0, cy = 31, colTop = 31;
-    const X = () => M + col * (COLW + GAP);
-    const room = (h) => {
-      if (cy + h <= BOT) return;
-      if (col === 0) { col = 1; cy = colTop; } else { doc.addPage(); col = 0; colTop = cy = TOP; }
-    };
+      // sources block across the bottom of the page
+      doc.setFont(...F.body); doc.setFontSize(5.6 * k);
+      const srcLine = REFS.map((r, n) => `${n + 1} ${r}`).join("   ·   ");
+      const srcLines = doc.splitTextToSize("Sources:   " + srcLine, PW - 2 * M);
+      const SRC_H = srcLines.length * 2.2 * k + 3;
+      const BOT = PH - 6 - SRC_H;
 
-    const NAMEW = 52, LH = 2.5;
-    const sparkline = (i, x, y, w, h, rgb) => {
-      const s = i.series; if (s.length < 2) return;
-      const vs = s.map((r) => r.Value); let lo = Math.min(...vs), hi = Math.max(...vs); if (hi === lo) { hi += 1; lo -= 1; }
-      const px = (yr) => x + ((yr - y0) / Math.max(1, y1 - y0)) * w, py = (v) => y + h - ((v - lo) / (hi - lo)) * h;
-      doc.setDrawColor(...RULE); doc.setLineWidth(0.15); doc.line(x, y + h + 0.35, x + w, y + h + 0.35);
-      doc.setDrawColor(...rgb); doc.setLineWidth(0.3);
-      for (let k = 1; k < s.length; k++) doc.line(px(s[k - 1].Year), py(s[k - 1].Value), px(s[k].Year), py(s[k].Value));
-      const e = s[s.length - 1]; doc.setFillColor(...SAF); doc.circle(px(e.Year), py(e.Value), 0.45, "F");
-    };
-    const arrow = (i, x, yc) => {
-      if (!i.prev) return; const d = i.last.Value - i.prev.Value; doc.setFillColor(...MUTED);
-      if (d > 0) doc.triangle(x, yc + 0.7, x + 1.6, yc + 0.7, x + 0.8, yc - 0.7, "F");
-      else if (d < 0) doc.triangle(x, yc - 0.7, x + 1.6, yc - 0.7, x + 0.8, yc + 0.7, "F");
-      else doc.rect(x, yc - 0.15, 1.6, 0.3, "F");
-    };
-    const valueText = (i) => { const u = unitShort(i.unit); return fmt(i.last.Value) + (u === "%" ? "%" : ""); };
-    const nameText = (label, i, withUnit) => { const u = unitShort(i.unit); return pdfText(label) + (withUnit && u && u !== "%" ? ` (${pdfText(u)})` : ""); };
+      // header
+      titleText(doc, TITLE, M, 12.5, 16, F.title, INK);
+      doc.setFont(...F.bold); doc.setFontSize(7.5); doc.setTextColor(...INK);
+      doc.text(`Collected, compiled and updated by VAM · Printed on ${today}`, M, 17.2);
+      doc.setFont(...F.body); doc.setFontSize(5.8); doc.setTextColor(...MUTED);
+      doc.text(`Latest published figure for ${inds.length} indicators  ·  Line: trend ${y0}–${y1}, gold dot = latest  ·  Arrow: change since the previous figure  ·  Small number: source, listed at the bottom`, M, 20.6);
+      doc.setDrawColor(...INK); doc.setLineWidth(0.35); doc.line(M, 22.2, PW - M, 22.2);
 
-    const rowH = (txt, indent) => { doc.setFont(...F.body); doc.setFontSize(6.6); return doc.splitTextToSize(txt, NAMEW - indent).length * LH + 1.1; };
-    const drawRow = (i, label, indent, rgb, withUnit) => {
-      const txt = nameText(label, i, withUnit);
-      doc.setFont(...F.body); doc.setFontSize(6.6);
-      const lines = doc.splitTextToSize(txt, NAMEW - indent), h = lines.length * LH + 1.1;
-      room(h); const x = X(), base = cy + 2.3, mid = cy + h / 2;
-      doc.setTextColor(...INK); doc.text(lines, x + indent, base);
-      sparkline(i, x + NAMEW + 1, mid - 1.3, 13, 2.4, rgb);
-      doc.setFont(...F.bold); doc.setFontSize(7); doc.setTextColor(...INK);
-      doc.text(valueText(i), x + 79, mid + 0.9, { align: "right" });
-      arrow(i, x + 79.8, mid + 0.1);
-      doc.setFontSize(6.3); doc.setTextColor(...SAF); doc.text(String(i.last.Year), x + 82.6, mid + 0.9);
-      doc.setFont(...F.body); doc.setFontSize(4.6); doc.setTextColor(...MUTED); doc.text(String(refOf(i.last)), x + 88.2, mid - 0.2);
-      doc.setDrawColor(...RULE); doc.setLineWidth(0.12); doc.line(x, cy + h, x + COLW, cy + h);
-      cy += h;
-    };
+      let col = 0, colTop = 24, cy = colTop;
+      const X = () => M + col * (COLW + GAP);
+      const room = (h) => {
+        if (cy + h <= BOT) return;
+        if (col === 0) { col = 1; cy = colTop; } else { doc.addPage(); col = 0; colTop = cy = 8; }
+      };
+      const sparkline = (i, x, y, w, h, rgb) => {
+        const s = i.series; if (s.length < 2) return;
+        const vs = s.map((r) => r.Value); let lo = Math.min(...vs), hi = Math.max(...vs); if (hi === lo) { hi += 1; lo -= 1; }
+        const px = (yr) => x + ((yr - y0) / Math.max(1, y1 - y0)) * w, py = (v) => y + h - ((v - lo) / (hi - lo)) * h;
+        doc.setDrawColor(...rgb); doc.setLineWidth(0.28);
+        for (let j = 1; j < s.length; j++) doc.line(px(s[j - 1].Year), py(s[j - 1].Value), px(s[j].Year), py(s[j].Value));
+        const e = s[s.length - 1]; doc.setFillColor(...SAF); doc.circle(px(e.Year), py(e.Value), 0.42, "F");
+      };
+      const arrow = (i, x, yc) => {
+        if (!i.prev) return; const d = i.last.Value - i.prev.Value, a = 0.6 * k; doc.setFillColor(...MUTED);
+        if (d > 0) doc.triangle(x, yc + a, x + 1.4, yc + a, x + 0.7, yc - a, "F");
+        else if (d < 0) doc.triangle(x, yc - a, x + 1.4, yc - a, x + 0.7, yc + a, "F");
+        else doc.rect(x, yc - 0.13, 1.4, 0.26, "F");
+      };
+      const valueText = (i) => fmt(i.last.Value) + (unitShort(i.unit) === "%" ? "%" : "");
+      const nameText = (label, i, withUnit) => { const u = unitShort(i.unit); return pdfText(label) + (withUnit && u && u !== "%" ? ` (${pdfText(u)})` : ""); };
+      const wrap = (txt, indent) => { doc.setFont(...F.body); doc.setFontSize(FS); return doc.splitTextToSize(txt, NAMEW - indent); };
+      const rowH = (txt, indent) => wrap(txt, indent).length * LH + PAD;
+      const drawRow = (i, label, indent, rgb, withUnit) => {
+        const lines = wrap(nameText(label, i, withUnit), indent), h = lines.length * LH + PAD;
+        room(h); const x = X(), mid = cy + h / 2, base = cy + PAD / 2 + LH * 0.78;
+        doc.setTextColor(...INK); doc.text(lines, x + indent, base);
+        sparkline(i, x + NAMEW + 1, mid - 1.1 * k, 12, 2.2 * k, rgb);
+        doc.setFont(...F.bold); doc.setFontSize(FS * 1.05); doc.setTextColor(...INK);
+        doc.text(valueText(i), x + COLW - 11.2, mid + 0.85 * k, { align: "right" });
+        arrow(i, x + COLW - 10.5, mid + 0.05);
+        doc.setFontSize(FS * 0.95); doc.setTextColor(...SAF); doc.text(String(i.last.Year), x + COLW - 8.1, mid + 0.85 * k);
+        doc.setFont(...F.body); doc.setFontSize(FS * 0.68); doc.setTextColor(...MUTED); doc.text(String(refOf(i.last)), x + COLW, mid - 0.15, { align: "right" });
+        doc.setDrawColor(...RULE); doc.setLineWidth(0.1); doc.line(x, cy + h, x + COLW, cy + h);
+        cy += h;
+      };
 
-    THEMES.forEach((t) => {
-      const items = t.inds.filter((i) => sel.has(i.code)); if (!items.length) return;
-      const rgb = THEME_RGB[t.n] || INK;
-      room(5.6 + rowH(items[0].name, 0) + (items[0].group ? 3.6 : 0));
-      if (cy > colTop) cy += 1.6;
-      doc.setFillColor(...rgb); doc.rect(X(), cy, COLW, 5, "F");
-      titleText(doc, `${t.n}. ${t.name}`, X() + 2, cy + 3.7, 8.5, F.title, [255, 255, 255]);
-      cy += 5.6;
-      let lastGroup = null;
-      items.forEach((i) => {
-        if (i.group && i.group !== lastGroup) {
-          room(3.4 + rowH(i.sub, 2.5));
-          const u = i.group.sameUnit ? unitShort(i.unit) : "";
-          doc.setFont(...F.bold); doc.setFontSize(6.6); doc.setTextColor(...INK);
-          doc.text(pdfText(i.group.name) + (u && u !== "%" ? ` (${pdfText(u)})` : ""), X(), cy + 2.4);
-          cy += 3.4;
-        }
-        lastGroup = i.group || null;
-        if (i.group) drawRow(i, i.sub, 2.5, rgb, !i.group.sameUnit);
-        else drawRow(i, i.name, 0, rgb, true);
+      THEMES.forEach((t) => {
+        const items = t.inds.filter((i) => sel.has(i.code)); if (!items.length) return;
+        const rgb = THEME_RGB[t.n] || INK, BAND = 4.3 * k;
+        const first = items[0].group ? LH + PAD + rowH(items[0].sub, 2.2) : rowH(items[0].name, 0);
+        room((cy > colTop ? 1.2 * k : 0) + BAND + 0.4 + first);
+        if (cy > colTop) cy += 1.2 * k;
+        doc.setFillColor(...rgb); doc.rect(X(), cy, COLW, BAND, "F");
+        titleText(doc, `${t.n}. ${t.name}`, X() + 1.6, cy + BAND * 0.72, 7.6 * k, F.title, [255, 255, 255]);
+        cy += BAND + 0.4;
+        let lastGroup = null;
+        items.forEach((i) => {
+          if (i.group && i.group !== lastGroup) {
+            room(LH + PAD + rowH(i.sub, 2.2));
+            const u = i.group.sameUnit ? unitShort(i.unit) : "";
+            doc.setFont(...F.bold); doc.setFontSize(FS); doc.setTextColor(...INK);
+            doc.text(pdfText(i.group.name) + (u && u !== "%" ? ` (${pdfText(u)})` : ""), X(), cy + PAD / 2 + LH * 0.78);
+            cy += LH + PAD;
+          }
+          lastGroup = i.group || null;
+          if (i.group) drawRow(i, i.sub, 2.2, rgb, !i.group.sameUnit);
+          else drawRow(i, i.name, 0, rgb, true);
+        });
       });
-    });
 
-    // numbered source list
-    room(5.6 + 6); if (cy > colTop) cy += 1.6;
-    doc.setFillColor(...INK); doc.rect(X(), cy, COLW, 5, "F");
-    doc.setFont(...F.bold); doc.setFontSize(7.5); doc.setTextColor(255, 255, 255); doc.text("Sources", X() + 2, cy + 3.5);
-    cy += 6;
-    REFS.forEach((r, n) => {
-      doc.setFont(...F.body); doc.setFontSize(6.2);
-      const lines = doc.splitTextToSize(r.k, COLW - 5), h = lines.length * 2.4 + 0.6;
-      room(h);
-      doc.setFont(...F.bold); doc.setTextColor(...SAF); doc.text(String(n + 1), X() + 3, cy + 2.2, { align: "right" });
-      doc.setFont(...F.body); doc.setTextColor(...INK); doc.text(lines, X() + 4.5, cy + 2.2);
-      cy += h;
-    });
-
-    const n = doc.getNumberOfPages();
-    for (let p = 1; p <= n; p++) {
-      doc.setPage(p); doc.setFont(...F.body); doc.setFontSize(6.3); doc.setTextColor(...MUTED);
-      doc.text(`${TITLE} · Collected, compiled and updated by VAM · Printed on ${today}`, M, PH - 6); doc.text(`${p} / ${n}`, PW - M, PH - 6, { align: "right" });
+      // sources and footer on the last page
+      const n = doc.getNumberOfPages();
+      doc.setPage(n);
+      doc.setDrawColor(...INK); doc.setLineWidth(0.25); doc.line(M, BOT + 1.2, PW - M, BOT + 1.2);
+      doc.setFont(...F.body); doc.setFontSize(5.6 * k); doc.setTextColor(...INK);
+      doc.text(srcLines, M, BOT + 3.6);
+      for (let p = 1; p <= n; p++) {
+        doc.setPage(p); doc.setFont(...F.body); doc.setFontSize(5.6); doc.setTextColor(...MUTED);
+        doc.text(`${TITLE} · Collected, compiled and updated by VAM · Printed on ${today}`, M, PH - 3.5);
+        if (n > 1) doc.text(`${p} / ${n}`, PW - M, PH - 3.5, { align: "right" });
+      }
+      return doc;
     }
+
+    let doc = null;
+    for (const k of [1.25, 1.15, 1.08, 1, 0.95, 0.9, 0.86, 0.82, 0.78]) { doc = await render(k); if (doc.getNumberOfPages() === 1) break; }
+    const n = doc.getNumberOfPages();
     doc.save(`cambodia-fact-and-figure-${new Date().toISOString().slice(0, 10)}.pdf`);
     toast(`Report downloaded: ${inds.length} indicators on ${n} page${n > 1 ? "s" : ""}`);
   }
