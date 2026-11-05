@@ -249,7 +249,19 @@
         <div class="cards">${parts.join("")}</div></section>`;
     });
     $("#sections").innerHTML = html || `<p class="empty">No indicator matches “${esc(QUERY)}”. Try a shorter word, such as “rice” or “poverty”.</p>`;
+    pack();
   }
+  /* Masonry packing: each card spans as many 4px grid rows as its height needs, so cards of
+     different heights slot together without gaps (grid-auto-flow: dense fills the holes). */
+  function pack() {
+    $$(".cards").forEach((g) => {
+      const st = getComputedStyle(g), row = parseFloat(st.gridAutoRows) || 4, gap = parseFloat(st.getPropertyValue("--gap")) || 12;
+      Array.from(g.children).forEach((c) => { c.style.gridRowEnd = "auto"; });
+      Array.from(g.children).forEach((c) => { c.style.gridRowEnd = "span " + Math.ceil((c.getBoundingClientRect().height + gap) / row); });
+    });
+  }
+  let packT; window.addEventListener("resize", () => { clearTimeout(packT); packT = setTimeout(pack, 120); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => pack());
 
   /* ---------- detail drawer ---------- */
   function niceTicks(lo, hi, n = 5) {
