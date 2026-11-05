@@ -21,7 +21,7 @@
     ["2.01", "People"], ["3.02", "GDP per person"], ["3.03", "Economic growth"],
     ["8.01", "Below the poverty line"], ["5.14", "Paddy rice harvest"], ["9.01", "Life expectancy"]
   ];
-  const UNIT_SHORT = { "Percent": "%", "Percent of GDP": "% of GDP", "-": "", "Million": "million", "Billion USD": "billion USD", "Tonnes/hectare": "t/ha", "Million tonnes": "million t", "Million hectares": "million ha", "Population per Sq.km": "people/km²" };
+  const UNIT_SHORT = { "Males per 100 females": "males per 100 females", "Percent": "%", "Percent of GDP": "% of GDP", "-": "", "Million": "million", "Billion USD": "billion USD", "Tonnes/hectare": "t/ha", "Million tonnes": "million t", "Million hectares": "million ha", "Population per Sq.km": "people/km²" };
 
   /* Sub-indicator groups. Explicit groups first; then automatic rules (" - Women", "Wet-season …", same name with another unit). */
   const EXPLICIT = {
@@ -371,82 +371,81 @@
     save(new Blob(["﻿" + lines.map(csvLine).join("\n")], { type: "text/csv;charset=utf-8" }), `cambodia-fact-and-figure-${allYears ? "all-years" : "latest"}-${new Date().toISOString().slice(0, 10)}.csv`);
     toast(`Downloaded ${inds.length} indicators as CSV`);
   }
-  function downloadPDF(inds) {
+  /* PDF fonts: Open Sans Light / ExtraBold (assets/fonts), and Halden Solid for titles when assets/fonts/HaldenSolid.ttf exists. */
+  const FONT_FILES = { "OpenSans-light": "assets/fonts/OpenSans-300Light.ttf", "OpenSans-extrabold": "assets/fonts/OpenSans-800ExtraBold.ttf", "Halden-solid": "assets/fonts/HaldenSolid.ttf" };
+  const FONT_CACHE = {};
+  async function fontB64(path) {
+    if (path in FONT_CACHE) return FONT_CACHE[path];
+    try {
+      const res = await fetch(path); if (!res.ok) throw 0;
+      const bytes = new Uint8Array(await res.arrayBuffer()); let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      FONT_CACHE[path] = btoa(bin);
+    } catch (e) { FONT_CACHE[path] = null; }
+    return FONT_CACHE[path];
+  }
+  async function setupFonts(doc) {
+    const have = {};
+    for (const [key, path] of Object.entries(FONT_FILES)) {
+      const b64 = await fontB64(path); if (!b64) continue;
+      const [fam, style] = key.split("-"); const file = path.split("/").pop();
+      doc.addFileToVFS(file, b64); doc.addFont(file, fam, style); have[key] = true;
+    }
+    const body = have["OpenSans-light"] ? ["OpenSans", "light"] : ["helvetica", "normal"];
+    const bold = have["OpenSans-extrabold"] ? ["OpenSans", "extrabold"] : ["helvetica", "bold"];
+    const title = have["Halden-solid"] ? ["Halden", "solid"] : bold;
+    return { body, bold, title };
+  }
+  const pdfText = (s) => String(s == null ? "" : s).replace(/[​-‍﻿]/g, "").replace(/[^\x20-\x7E -ÿ–—‘’“”•…²]/g, "").trim();
+
+  async function downloadPDF(inds) {
     if (!window.jspdf || !window.jspdf.jsPDF) { toast("The PDF tool did not load. Check your connection and try again."); return; }
+    toast("Preparing the PDF…");
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const PW = 210, M = 14, INK = [20, 33, 61], MUTED = [86, 102, 122], TEAL = [18, 105, 122], SAF = [201, 131, 0];
+    const F = await setupFonts(doc);
+    const PW = 210, PH = 297, M = 11, INK = [20, 33, 61], MUTED = [86, 102, 122], SAF = [176, 112, 0];
     const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const sel = new Set(inds.map((i) => i.code));
-    doc.setFillColor(...INK); doc.rect(0, 0, PW, 78, "F");
-    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(30);
-    doc.text(TITLE, M, 34);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(12);
-    doc.text("Key national indicators - latest published figures", M, 44);
-    doc.setFontSize(9.5); doc.setTextColor(200, 210, 225);
-    doc.text(`Report generated ${today} · ${inds.length} of ${IND.filter((i) => i.dl).length} indicators · ${SOURCE === "live" ? "live data from the Google Sheet" : "built-in data copy"}`, M, 62);
-    let heads = HEADLINE.filter(([c]) => sel.has(c));
-    if (!heads.length) heads = inds.slice(0, 6).map((i) => [i.code, i.name]);
-    let y = 94;
-    if (heads.length) {
-      doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("Headline figures", M, y);
-      const bw = (PW - 2 * M - 8) / 3, bh = 30;
-      heads.forEach(([code, label], k) => {
-        const i = IND.find((x) => x.code === code); if (!i) return;
-        const x = M + (k % 3) * (bw + 4), by = y + 6 + Math.floor(k / 3) * (bh + 4);
-        doc.setDrawColor(210, 220, 224); doc.setFillColor(246, 249, 249); doc.roundedRect(x, by, bw, bh, 2.5, 2.5, "FD");
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...MUTED); doc.text(doc.splitTextToSize(ascii(label), bw - 8)[0], x + 4, by + 7);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor(...INK); doc.text(fmt(i.last.Value), x + 4, by + 18);
-        const vw = doc.getTextWidth(fmt(i.last.Value)); doc.setFontSize(8.5); doc.setFont("helvetica", "normal"); doc.setTextColor(...MUTED);
-        doc.text(ascii(unitShort(i.unit)), x + 6 + vw, by + 18);
-        doc.setTextColor(...SAF); doc.setFont("helvetica", "bold"); doc.text(`Latest year: ${i.last.Year}`, x + 4, by + 25.5);
-      });
-      y += 6 + Math.ceil(heads.length / 3) * 34 + 10;
-    }
-    doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("How to read this report", M, y);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...MUTED);
-    doc.text(doc.splitTextToSize("Each indicator shows its most recent published figure. Sources publish on different schedules, so the year differs from one indicator to another; always read the value together with its year. Change compares the latest figure with the previous year that has data. Sub-indicators (for example women and men) are listed under their main indicator.", PW - 2 * M), M, y + 7);
-    y += 36;
-    const cnt = { fresh: 0, aging: 0, stale: 0 }; inds.forEach((i) => cnt[fresh(i.last.Year)]++);
-    doc.setTextColor(...INK); doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.text("How recent are the figures?", M, y);
-    const cols = { fresh: [47, 138, 85], aging: [185, 122, 0], stale: [176, 69, 59] }; let x0 = M; const barW = PW - 2 * M;
-    ["fresh", "aging", "stale"].forEach((k) => { const w = barW * cnt[k] / inds.length; if (w > 0) { doc.setFillColor(...cols[k]); doc.rect(x0, y + 5, w, 7, "F"); } x0 += w; });
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
-    let lx = M; ["fresh", "aging", "stale"].forEach((k) => {
-      doc.setFillColor(...cols[k]); doc.circle(lx + 1.5, y + 18.5, 1.5, "F"); doc.setTextColor(...MUTED);
-      const t = `${FRESH_LABEL[k].replace("–", "-")}: ${cnt[k]}`; doc.text(t, lx + 5, y + 19.5); lx += doc.getTextWidth(t) + 14;
-    });
-    doc.addPage(); let cy = 16;
+    // compact header on page 1 only
+    doc.setFont(...F.title); doc.setFontSize(17); doc.setTextColor(...INK);
+    doc.text(TITLE, M, 15);
+    doc.setFont(...F.body); doc.setFontSize(8); doc.setTextColor(...MUTED);
+    doc.text(`Latest published figure for each indicator · ${inds.length} indicators · generated ${today}`, M, 20.5);
+    doc.text(SOURCE === "live" ? "Data: live Google Sheet" : "Data: built-in copy", PW - M, 20.5, { align: "right" });
+    doc.setDrawColor(...INK); doc.setLineWidth(0.4); doc.line(M, 23.5, PW - M, 23.5);
+    let cy = 27;
     THEMES.forEach((t) => {
       const items = t.inds.filter((i) => sel.has(i.code)); if (!items.length) return;
-      if (cy > 235) { doc.addPage(); cy = 16; }
-      const rgb = THEME_RGB[t.n] || TEAL;
-      doc.setFillColor(...rgb); doc.roundedRect(M, cy, PW - 2 * M, 11, 2, 2, "F");
-      doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(12.5); doc.text(`${t.n}. ${ascii(t.name)}`, M + 4, cy + 7.6);
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.text(`${items.length} indicator${items.length > 1 ? "s" : ""}`, PW - M - 4, cy + 7.4, { align: "right" });
+      if (cy > PH - 30) { doc.addPage(); cy = 12; }
+      const rgb = THEME_RGB[t.n] || INK;
+      doc.setFillColor(...rgb); doc.rect(M, cy, PW - 2 * M, 6, "F");
+      doc.setFont(...F.title); doc.setFontSize(9); doc.setTextColor(255, 255, 255);
+      doc.text(`${t.n}. ${pdfText(t.name)}`, M + 2.5, cy + 4.2);
       const body = []; let lastGroup = null;
       items.forEach((i) => {
-        if (i.group && i.group !== lastGroup) { body.push([{ content: ascii(i.group.name), colSpan: 7, styles: { fontStyle: "bold", fillColor: [238, 243, 244], textColor: INK } }]); }
+        if (i.group && i.group !== lastGroup) body.push([{ content: pdfText(i.group.name), colSpan: 7, styles: { font: F.bold[0], fontStyle: F.bold[1], textColor: INK, fillColor: [241, 245, 246] } }]);
         lastGroup = i.group || null;
-        body.push([i.code, (i.group ? "   " + ascii(i.sub) : ascii(i.name)), fmt(i.last.Value), ascii(i.unit === "-" ? "" : i.unit), String(i.last.Year),
-          i.prev ? `${i.last.Value - i.prev.Value > 0 ? "+" : ""}${fmt(i.last.Value - i.prev.Value)} (since ${i.prev.Year})` : "", ascii([i.last.Author, i.last.Report].filter(Boolean).join(", "))]);
+        const d = i.prev ? i.last.Value - i.prev.Value : null;
+        body.push([i.code, i.group ? "  " + pdfText(i.sub) : pdfText(i.name), fmt(i.last.Value), pdfText(unitShort(i.unit)), String(i.last.Year),
+          d == null ? "" : `${d > 0 ? "+" : ""}${fmt(d)} (${i.prev.Year})`, pdfText([i.last.Author, i.last.Report].filter(Boolean).join(", "))]);
       });
       doc.autoTable({
-        startY: cy + 13, margin: { left: M, right: M, bottom: 18, top: 16 },
+        startY: cy + 6, margin: { left: M, right: M, top: 12, bottom: 12 }, showHead: "firstPage",
         head: [["Code", "Indicator", "Value", "Unit", "Year", "Change", "Source"]], body,
-        styles: { font: "helvetica", fontSize: 8.4, cellPadding: 2, textColor: INK, lineColor: [220, 228, 231], lineWidth: 0.1, valign: "middle" },
-        headStyles: { fillColor: [244, 247, 248], textColor: MUTED, fontStyle: "bold", fontSize: 8 },
-        columnStyles: { 0: { cellWidth: 11 }, 1: { cellWidth: 52 }, 2: { halign: "right", fontStyle: "bold", cellWidth: 17 }, 3: { cellWidth: 22 }, 4: { halign: "center", cellWidth: 11, textColor: SAF, fontStyle: "bold" }, 5: { cellWidth: 26, textColor: MUTED }, 6: { textColor: MUTED } }
+        styles: { font: F.body[0], fontStyle: F.body[1], fontSize: 7, cellPadding: { top: 0.9, bottom: 0.9, left: 1.3, right: 1.3 }, textColor: INK, lineColor: [222, 229, 232], lineWidth: 0.1, valign: "middle", minCellHeight: 0 },
+        headStyles: { font: F.bold[0], fontStyle: F.bold[1], fillColor: [255, 255, 255], textColor: MUTED, fontSize: 6.5 },
+        columnStyles: { 0: { cellWidth: 8.5 }, 1: { cellWidth: 57 }, 2: { halign: "right", font: F.bold[0], fontStyle: F.bold[1], cellWidth: 13 }, 3: { cellWidth: 25 }, 4: { halign: "center", cellWidth: 9, textColor: SAF, font: F.bold[0], fontStyle: F.bold[1] }, 5: { cellWidth: 18, textColor: MUTED }, 6: { textColor: MUTED, fontSize: 6.5 } }
       });
-      cy = doc.lastAutoTable.finalY + 10;
+      cy = doc.lastAutoTable.finalY + 4;
     });
     const n = doc.getNumberOfPages();
     for (let p = 1; p <= n; p++) {
-      doc.setPage(p); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...MUTED);
-      doc.text(`${TITLE} · generated ${today}`, M, 289); doc.text(`Page ${p} of ${n}`, PW - M, 289, { align: "right" });
+      doc.setPage(p); doc.setFont(...F.body); doc.setFontSize(6.5); doc.setTextColor(...MUTED);
+      doc.text(`${TITLE} · ${today}`, M, PH - 6); doc.text(`${p} / ${n}`, PW - M, PH - 6, { align: "right" });
     }
     doc.save(`cambodia-fact-and-figure-${new Date().toISOString().slice(0, 10)}.pdf`);
-    toast(`Report downloaded: ${inds.length} indicators`);
+    toast(`Report downloaded: ${inds.length} indicators on ${n} page${n > 1 ? "s" : ""}`);
   }
 
   /* ---------- events ---------- */
@@ -489,7 +488,7 @@
     $("#pk-head").addEventListener("click", () => { SELECTED.clear(); HEADLINE.forEach(([c]) => { const i = IND.find((x) => x.code === c); if (i && i.dl) SELECTED.add(c); }); renderPicker(); });
     $("#pk-go").addEventListener("click", () => {
       const inds = selectedInds(); if (!inds.length) return;
-      if ($("input[name=pk-fmt]:checked").value === "pdf") downloadPDF(inds);
+      if ($("input[name=pk-fmt]:checked").value === "pdf") downloadPDF(inds).catch((e) => toast("The PDF could not be made: " + e.message));
       else downloadCSV(inds, $("input[name=pk-years]:checked").value === "all");
     });
     const bar = $(".bar"), themes = $(".themes");

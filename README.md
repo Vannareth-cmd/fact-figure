@@ -27,6 +27,10 @@ To get the link: in the Sheet, go to **File → Share → Publish to web**. Choo
 
 If the link cannot be read, the page uses `data/data.json` and the status line says "Showing the built-in copy of the data".
 
+## PDF fonts
+
+The PDF report embeds **Open Sans Light** (body text) and **Open Sans ExtraBold** (values and headings) from `assets/fonts/`. Titles use **Halden Solid** if `assets/fonts/HaldenSolid.ttf` exists. If it doesn't, titles fall back to Open Sans ExtraBold. To switch to Halden, add that file (TTF format) and nothing else needs to change.
+
 ## Showing or hiding an indicator (editors)
 
 The **Indicator_List** tab has two columns that control each indicator:
