@@ -1,7 +1,7 @@
 /* Cambodia Fact and Figure — reads the published Data tab of the Google Sheet, falls back to data/data.json. */
 (function () {
   "use strict";
-  const CFG = Object.assign({ csvUrl: "", listUrl: "", fallback: "data/data.json", firstYear: 2013 }, window.FF_CONFIG || {});
+  const CFG = Object.assign({ csvUrl: "", listUrl: "", fallback: "data/data.json", firstYear: 2013, allowCSV: true }, window.FF_CONFIG || {});
   const NOW = new Date().getFullYear();
   const TITLE = "Cambodia Fact and Figure";
 
