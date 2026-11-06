@@ -192,7 +192,7 @@
     const txt = d ? d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "–";
     const el = $("#status");
     el.className = "status live";
-    el.innerHTML = `<i></i>Data last updated by the editor on ${txt}`;
+    el.innerHTML = `<i></i>Data last updated by VAM on ${txt}`;
     $("#updated").textContent = txt;
     $("#n-ind").textContent = IND.filter((i) => i.dash).length;
   }
