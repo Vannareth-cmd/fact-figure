@@ -1,6 +1,6 @@
 # Cambodia Fact and Figure
 
-A dashboard of Cambodia's key national indicators, built from the Fact & Figure Database. It is a static site for GitHub Pages: no server and no build step.
+A dashboard of Cambodia's key national indicators, built from the Fact & Figure Database. It is a static site for GitHub Pages: no server and no build step. Go to page:  https://vannareth-cmd.github.io/fact-figure/
 
 ## What it shows
 
