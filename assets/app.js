@@ -16,7 +16,10 @@
     8: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11h18a9 9 0 0 1-18 0z"/><path d="M8 7c0-1.5 1-2 1-3M12 7c0-1.5 1-2 1-3M16 7c0-1.5 1-2 1-3"/></svg>',
     9: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 6.6a5 5 0 0 0-8.8-2.3 5 5 0 0 0-8.8 2.3C2.5 11 12 20 12 20s9.5-9 8.8-13.4z"/><path d="M7 11h3l1.5-2.5 2 5L15 11h2"/></svg>'
   };
-  const THEME_RGB = { 1: [90, 107, 140], 2: [181, 72, 90], 3: [201, 131, 0], 4: [122, 90, 166], 5: [76, 140, 63], 6: [47, 143, 134], 7: [47, 111, 179], 8: [176, 96, 46], 9: [194, 65, 111] };
+  /* Icon for a theme number that has none above (for example a new theme 10). */
+  const ICON_DEFAULT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
+  /* PDF colours of the themes (red, green, blue). Keep them close to --t1 … --t12 in assets/style.css. */
+  const THEME_RGB = { 1: [90, 107, 140], 2: [181, 72, 90], 3: [201, 131, 0], 4: [122, 90, 166], 5: [76, 140, 63], 6: [47, 143, 134], 7: [47, 111, 179], 8: [176, 96, 46], 9: [194, 65, 111], 10: [120, 110, 60], 11: [60, 120, 150], 12: [150, 80, 140] };
   const HEADLINE = [
     ["2.01", "People"], ["3.02", "GDP per person"], ["3.03", "Economic growth"],
     ["8.01", "Below the poverty line"], ["5.14", "Paddy rice harvest"], ["9.01", "Life expectancy"]
@@ -204,7 +207,7 @@
   function renderChips() {
     const all = `<button class="chip" data-t="0" aria-pressed="${ACTIVE === 0}" style="--tc:var(--river)"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span>All themes <span class="n">${IND.filter((i) => i.dash).length}</span></button>`;
     $("#chips").innerHTML = all + THEMES.filter((t) => t.inds.some((i) => i.dash)).map((t) =>
-      `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ""}</span>${esc(t.name)} <span class="n">${t.inds.filter((i) => i.dash).length}</span></button>`).join("");
+      `<button class="chip" data-t="${t.n}" aria-pressed="${ACTIVE === t.n}" style="--tc:var(--t${t.n})"><span class="ic">${ICONS[t.n] || ICON_DEFAULT}</span>${esc(t.name)} <span class="n">${t.inds.filter((i) => i.dash).length}</span></button>`).join("");
   }
   /* Picks the picture that best explains a single indicator:
      ring    a share out of 100 (urban population, electricity access…), with "about 4 in 10"
@@ -366,7 +369,7 @@
       if (!parts.length) return;
       const newest = Math.max(...shown.map((i) => i.last.Year)), oldest = Math.min(...shown.map((i) => i.last.Year));
       html += `<section class="section" id="theme-${t.n}" style="--tc:var(--t${t.n})">
-        <div class="sec-head"><span class="badge">${ICONS[t.n] || ""}</span><div><h2>${esc(t.name)}</h2>
+        <div class="sec-head"><span class="badge">${ICONS[t.n] || ICON_DEFAULT}</span><div><h2>${esc(t.name)}</h2>
         <div class="sub-h">${shown.length} indicator${shown.length > 1 ? "s" : ""} · latest figures from ${oldest === newest ? newest : oldest + " to " + newest}</div></div></div>
         <div class="cards">${parts.join("")}</div></section>`;
     });
@@ -463,7 +466,7 @@
     $("#pk-list").innerHTML = THEMES.map((t) => {
       const items = t.inds.filter((i) => i.dl && matches(i, q)); if (!items.length) return "";
       const on = items.filter((i) => SELECTED.has(i.code)).length;
-      return `<fieldset class="pk-theme" style="--tc:var(--t${t.n})"><legend><label><input type="checkbox" data-theme-box="${t.n}" ${on === items.length ? "checked" : ""} ${on > 0 && on < items.length ? 'data-mixed="1"' : ""}> <span class="ic">${ICONS[t.n] || ""}</span>${t.n}. ${esc(t.name)}</label><span class="n">${on}/${items.length}</span></legend>
+      return `<fieldset class="pk-theme" style="--tc:var(--t${t.n})"><legend><label><input type="checkbox" data-theme-box="${t.n}" ${on === items.length ? "checked" : ""} ${on > 0 && on < items.length ? 'data-mixed="1"' : ""}> <span class="ic">${ICONS[t.n] || ICON_DEFAULT}</span>${t.n}. ${esc(t.name)}</label><span class="n">${on}/${items.length}</span></legend>
         ${items.map((i) => `<label class="pk-item${i.group ? " is-sub" : ""}"><input type="checkbox" data-pick="${i.code}" ${SELECTED.has(i.code) ? "checked" : ""}><span class="c">${i.code}</span><span class="t">${i.group ? `<em>${esc(i.group.name)}:</em> ${esc(i.sub)}` : esc(i.name)}</span><span class="y">${i.last.Year}</span></label>`).join("")}</fieldset>`;
     }).join("") || `<p class="empty">No indicator matches “${esc(q)}”.</p>`;
     $$("#pk-list [data-mixed]").forEach((b) => { b.indeterminate = true; });
@@ -471,11 +474,11 @@
     $("#pk-count").textContent = `${SELECTED.size} of ${IND.filter((i) => i.dl).length} indicators selected`;
     $("#pk-go").disabled = SELECTED.size === 0;
     $("#pk-go").textContent = SELECTED.size === 0 ? "Select at least one indicator" : `Download ${fmtSel === "pdf" ? "PDF report" : "CSV"} (${SELECTED.size})`;
-    $("#pk-csvopt").hidden = fmtSel !== "csv";
+    $("#pk-csvopt").hidden = fmtSel !== "csv" || !CFG.allowCSV;
   }
   function openPicker(format) {
     if (!SELECTED.size) IND.forEach((i) => { if (i.dl) SELECTED.add(i.code); });
-    $(`input[name=pk-fmt][value=${format}]`).checked = true;
+    $(`input[name=pk-fmt][value=${CFG.allowCSV ? format : "pdf"}]`).checked = true;
     $("#pk-q").value = "";
     renderPicker();
     $("#picker").hidden = false; $("#scrim2").hidden = false;
@@ -725,7 +728,16 @@
     __ffFit(); window.addEventListener("resize", __ffFit);
   }
 
+  /* allowCSV: false in index.html turns CSV downloads off; only the PDF report remains. */
+  function applyDownloadSettings() {
+    if (CFG.allowCSV) return;
+    $("#csv").hidden = true; $("#pk-fmtseg").hidden = true; $("#pk-csvopt").hidden = true;
+    $("#pk-fmt-pdf").checked = true; $("#pk-fmt-csv").disabled = true;
+    $("#dl-note").textContent = "Choose the indicators you need, then download them as a one-page PDF report.";
+    $("#pk-title").textContent = "Choose what to put in the PDF report";
+  }
   async function start() {
+    applyDownloadSettings();
     let rows;
     try { rows = await loadLive(); SOURCE = "live"; } catch (e) { rows = await loadFallback(); SOURCE = "fallback"; }
     try { VIS = await loadVisibility(); } catch (e) { VIS = {}; }
