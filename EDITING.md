@@ -5,13 +5,13 @@ This guide is for the editor and owner. It covers two kinds of change:
 - **Data**: figures, new indicators, showing or hiding an indicator. These are done **in the Google Sheet**. No code is needed.
 - **Look and settings**: colours, titles, texts, CSV on or off, headline figures. These are done **in this GitHub repository**, by editing a file.
 
-Live site: <https://khgeo.github.io/fact-figures/>
+Live site: <https://vannareth-cmd.github.io/fact-figure/>
 
 ---
 
 ## 1. How to edit a file on GitHub
 
-1. Open <https://github.com/khgeo/fact-figures> and click the file, for example `index.html`.
+1. Open <https://github.com/vannareth-cmd/fact-figures> and click the file, for example `index.html`.
 2. Click the **pencil** icon (*Edit this file*) at the top right of the file.
 3. Make the change. To find a line quickly, press **Ctrl+F** (or **Cmd+F** on a Mac) inside the editor.
 4. Click **Commit changes…**, write a short note such as "Change theme colours", and click **Commit changes**.
